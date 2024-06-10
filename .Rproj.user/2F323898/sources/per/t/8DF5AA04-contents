@@ -1,0 +1,1399 @@
+---
+title: "Statistical Analysis of OTUs"
+author: "Sarah HUET"
+date: '2023-05-17'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(emmeans)
+library(gdata)
+
+# load work space data
+load("Data/R_data.RData")
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# Filter most abundant OTUs
+
+Statistical analyses of OTUs abundances were focused on the most abundant OTUs in microcosms. Briefly, low-abundance OTUs were filtered out of the count table by keeping OTUs that (i) represented > 0.1% of the sequences in at least ten samples and (ii) were found in at least 60% of replicates for any given treatment, which resulted in 258 dominant OTUs. These dominant OTUs were used to build pruned trees using the ape package (Paradis & Schliep, 2019) and were visualized using the Interactive Tree of Life (iTOL) webserver (Letunic & Bork, 2021).
+
+```{r relative_abundance_filter}
+
+tmp_ps = ps_16S_micro
+# calculate OTU relative abundance
+tmp_otu_df <- as.data.frame(otu_table(tmp_ps))
+tmp_otu_relab <- apply(tmp_otu_df, 2, FUN=function(x) x/sum(x)*100)
+# sum for each OTU the number of samples where OTU relative abundance >= threshold
+tmp_relab_thld = 0.1
+tmp_otu_relab_thld <- apply(tmp_otu_relab, 1, FUN=function(x) sum(x>=(tmp_relab_thld)))
+# select OTUs which relative abundance is >= threshold in >= ten samples
+tmp_nb_sample = 10
+tmp_otus_fltr1 <- rownames(tmp_otu_df[which(tmp_otu_relab_thld >= tmp_nb_sample),])
+# subset selected OTUs
+tmp_ps_fltr1 <- prune_taxa(taxa_names(tmp_ps) %in% tmp_otus_fltr1, tmp_ps)
+
+# final tmp_ps_fltr1: 121 samples & 259 OTUs
+
+```
+
+```{r prevalence_filter}
+
+tmp_ps = tmp_ps_fltr1
+# calculate OTUs prevalence (i.e., presence in samples for each treatment)
+tmp_otu_df <- psmelt(tmp_ps) %>%
+  select(OTU,sample,Abundance,treatment)
+tmp_otu_df[,"presence"] <- ifelse(tmp_otu_df$Abundance >0,1,0)
+tmp_otu_prev <- tmp_otu_df %>%
+  dplyr::group_by(OTU,treatment) %>%
+  dplyr::summarise(presence_sum = sum(presence),
+                   nb_sample = n()) %>%
+  ungroup()
+tmp_otu_prev[,"prevalence"] <- tmp_otu_prev$presence_sum / tmp_otu_prev$nb_sample
+# select OTUs >= prevalence threshold
+tmp_prev_thld = 0.6
+tmp_otus_fltr2 <- unique(tmp_otu_prev$OTU[tmp_otu_prev$prevalence >= tmp_prev_thld])
+# subset selected OTUs
+ps_16S_fltr <- prune_taxa(taxa_names(tmp_ps) %in% tmp_otus_fltr2, tmp_ps)
+
+# final ps_16S_fltr: 121 samples & 258 OTUs
+
+```
+
+# Effect of community properties
+
+To estimate the effect of the community properties on each OTU abundance, we calculated the property F-values using ANOVAs based on the following generalized linear mixed model (Equation 4). Considering that an OTU of abundance Y, in any j replicates of any coalescence treatment with a diversity, b composition and d density, follows a Poisson distribution of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, we used the following model:
+
+$$\log(\Lambda_{abdj}) = o_{abdj} + \mu + \alpha_a + \beta_b + \delta_d + (\alpha\beta_{ab}) + (\alpha\delta_{ad}) + (\beta\delta_{bd}) + (\alpha\beta\delta_{abd}) + Z_{abdj},\ Z_{{abdj}_{1 \le j \le 10}} \ iid \sim \mathcal{N} (0,\sigma^2) \ (4)$$
+
+where $a=\left\{1,2\right\}$ represents the diversity, $b=\left\{1,2\right\}$ represents the composition, $d=\left\{1,2,3\right\}$ represents the density, $j=\left\{1,\ldots,10\right\}$ represents the replicates, $\alpha$, $\beta$, $\delta$ are the fixed effects of the diversity, composition and density of the manipulated communities, respectively, and their interactions, o is the offset for each sample calculated as the log of the sample read sum and Z is the random sampling effect modelling the data overdispersion. The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Each model was tested against a null model (i.e., a model without the effect of the treatments) using likelihood-ratio test and p-value were corrected using a Bonferroni correction (adjusted Chi square p-value $\le$ 0.05).
+
+```{r loop_pct_expl_var}
+
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+
+# define model variables
+## treatments
+a = tmp_ps@sam_data$incub
+b = tmp_ps@sam_data$broth
+d = tmp_ps@sam_data$density
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z <- tmp_ps@sam_data$sample
+
+# global df
+tmp_global = tibble()
+
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  #tmp_i = which(taxa_names(tmp_ps) == "OTU-45")
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  # models
+  glmer3 <- glmer(y ~ a*b*d + (1 | as.factor(z)),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+  
+  # LRT
+  LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+  
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # Percentage of variance explained
+    ## calculate sum of squares between groups and residual
+    tmp_aov = aov((y/o) ~ a*b*d + Error(as.factor(z)))
+    tmp_summary = summary(tmp_aov)[["Error: as.factor(z)"]][[1]]
+    tmp_summary = tibble("var"= gsub(rownames(tmp_summary),pattern = " ",replacement = ""),tmp_summary)
+    ## calculate percentage of variance explained
+    tmp_summary[,"pct_expl"] = tmp_summary$`Sum Sq` / sum(tmp_summary$`Sum Sq`) *100
+    
+    # calculate CHisq pvalue
+    tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+    tmp_pval = tibble("var"=rownames(tmp_pval),tmp_pval)
+    # join tibbles
+    tmp_val = left_join(tmp_summary,tmp_pval)
+    # add OTU in tibble
+    tmp_val = tibble("OTU"= tmp_OTU,tmp_val)
+    
+  } else {
+    tmp_val = c("a","b","d","a:b","a:d","b:d","a:b:d","Residuals")
+    tmp_val = tibble("OTU"= tmp_OTU,"var"=tmp_val,
+                     "Df"=NA,"Sum Sq"=NA,"Mean Sq"=NA,"F value"=NA,"Pr(>F)"=NA,
+                     "pct_expl"=0,"Chisq"=NA,"Pr(>Chisq)"=NA)
+  }
+  
+  # global df
+  tmp_global = rbind(tmp_global,tmp_val)
+  
+  print(tmp_i)
+
+}
+
+# bonferroni p-val correction: 258 OTUs * (3 factor main effects + 4 factor interactions)
+tmp_global[,"bonferroni"] <- p.adjust(tmp_global$`Pr(>Chisq)`,method = "bonferroni")
+# F values for significant variables
+tmp_global[,"sgnf_fval"] <- ifelse(tmp_global$bonferroni <= 0.05,tmp_global$`F value`,0)
+# percentage of explained variance for significant variables
+tmp_global[,"sgnf_pct_expl"] <- ifelse(tmp_global$bonferroni <= 0.05,tmp_global$pct_expl,0)
+
+
+stat_otu_aov_o = tmp_global
+
+rm(b,a,d,o,z,y,glmer3,glmer0,LRT,tmp_LRT_pchisq,tmp_aov,tmp_pval,tmp_val)
+
+```
+
+# Effect of coalescence treatments
+
+To estimate the effect of each treatment on each OTU abundance, we used a generalized linear mixed model. Considering that an OTU of abundance Y, in any j replicates of any i treatment, follows a Poisson distribution of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, we used the following model:
+
+$$\log(\Lambda_{ij}) = o_{ij} + \mu + \gamma_i + Z_{ij},\ Z_{{ij}_{1\le j\le10}} \ iid \sim \mathcal{N} (0,\sigma^2) \ (3)$$
+
+where $i=\left\{0,\ldots,12\right\}$ represents the non-coalesced control and the coalescence treatments, $j=\left\{1,\ldots,10\right\}$ represents the replicates, $\gamma$ is the fixed effect of the treatments, o is the offset for each sample calculated as the log of the sample read sum and Z is the random sampling effect modelling the data overdispersion. The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Each model was tested against a null model (i.e., a model without the effect of the treatments) using likelihood-ratio test and p-value were corrected using a Bonferroni correction (adjusted Chi square p-value $\le$ 0.05). Subsequently, we implemented multiple pairwise comparisons on significative models with the emmeans function of the emmeans package (version 1.6.1) and p-values were corrected using a Bonferroni correction (p-value $\le$ 0.05).
+
+```{r loop}
+
+tmp_ps = ps_16S_fltr
+
+# define model variables
+## treatments
+tmp_g = tmp_ps@sam_data$treatment
+## offset
+tmp_o = log(sample_sums(tmp_ps))
+## random effect
+tmp_z = tmp_ps@sam_data$sample
+
+# global df
+tmp_glmer_sum_global = tibble()
+tmp_emmeans_sum_global = tibble()
+
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  print(paste0(tmp_i,": ",tmp_OTU))
+  
+  # response variable
+  tmp_y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  
+  tmp_glmer1 <- glmer(tmp_y ~ -1 + tmp_g + (1 | tmp_z),family='poisson', offset = tmp_o,nAGQ=0)
+  tmp_glmer0 <- glmer(tmp_y ~ 1 + (1 | tmp_z),family='poisson', offset = tmp_o)
+  
+  # LRT
+  tmp_LRT <- 2*(logLik(tmp_glmer1)[1] - logLik(tmp_glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # model summary
+    tmp_glmer_sum = summary(tmp_glmer1)$coefficients
+    tmp_glmer_sum = tibble("OTU"= tmp_OTU,
+                           "treatment"=rownames(tmp_glmer_sum),
+                           as_tibble(tmp_glmer_sum))
+    
+    # multiple comparaison
+    tmp_emmeans = emmeans(tmp_glmer1,pairwise~tmp_g,adjust="none")
+    ## select p value
+    tmp_emmeans_sum = summary(tmp_emmeans)
+    tmp_emmeans_sum = tmp_emmeans_sum[["contrasts"]]
+    ## wrangle summary
+    tmp_df = tmp_emmeans_sum
+    tmp = unlist(strsplit(as.character(tmp_df$contrast)," - "))
+    tmp_df[,"g1"] <- tmp[seq(1,length(tmp),by=2)]
+    tmp_df[,"g2"] <- tmp[seq(2,length(tmp),by=2)]
+    # tmp_df = tmp_df[tmp_df$g1 == "C",] # keep only comparison to control
+    tmp_emmeans_sum = cbind("OTU"=tmp_OTU,tmp_df)
+    
+    rm(tmp_emmeans,tmp,tmp_df)
+    
+    # global df
+    tmp_glmer_sum_global = rbind(tmp_glmer_sum_global,tmp_glmer_sum)
+    tmp_emmeans_sum_global = rbind(tmp_emmeans_sum_global,tmp_emmeans_sum)
+    }
+  
+
+}
+
+
+# bonferroni p-val correction : 258 OTUs * 78 comparisons
+tmp_emmeans_sum_global[,"pval_adjust"] <- p.adjust(tmp_emmeans_sum_global$p.value, method = "bonferroni")
+
+stat_otu_emmeans = tmp_emmeans_sum_global
+stat_otu_glmer = tmp_glmer_sum_global
+
+```
+
+A loglikelihood ratio test was applied when the OTU had a null abundance in one treatment and a median abundance higher or equal to 5 in the compared treatment (see code available online).
+
+```{r apply median filter for comparisons with C}
+
+
+# set median threshold
+tmp_thrld = 5
+
+# calculate sum & median abundance by treatment for each OTU
+tmp_psmelt = psmelt(ps_16S_fltr) %>%
+  select("OTU","sample","treatment","Abundance")
+tmp_abund <- tmp_psmelt %>%
+  dplyr::group_by(OTU,treatment) %>%
+  dplyr::summarise(abund_sum = sum(Abundance),
+                   abund_median = median(Abundance)) %>%
+  ungroup()
+# which OTUs have an abundance sum =0 in any treatment
+tmp_OTUs =  unique(tmp_abund$OTU[tmp_abund$abund_sum == 0])
+# for each of these OTUs, apply a LRT when abundance =0 in one treatment and abundance median >= 5 in another treatment
+tmp_loop_df = stat_otu_emmeans
+for (tmp_OTU in tmp_OTUs) {
+  tmp_data = tmp_abund[tmp_abund$OTU == tmp_OTU,]
+  
+  # abundance in C
+  tmp_abund_C = tmp_data[tmp_data$treatment == "C",]
+  
+  if (tmp_abund_C$abund_sum == 0) {
+    # in which treatment median abundance >= 5
+    tmp_ttts = tmp_data$treatment[tmp_data$abund_median >= tmp_thrld]
+    
+    for (tmp_ttt in tmp_ttts) {
+      
+      # abundance in samples
+      tmp1 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == "C"]
+      tmp2 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == tmp_ttt]
+      
+      # LRT
+      tmp_logLik1 <- sum(dpois(tmp1,mean(tmp1), log=TRUE)) +
+        sum(dpois(tmp2,mean(tmp2), log=TRUE))
+      tmp_logLik0 <- sum(dpois(c(tmp1,tmp2), mean(c(tmp1,tmp2)), log=TRUE)) 
+      tmp_LRT <- 2*(tmp_logLik1 - tmp_logLik0)
+      tmp_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE)
+      
+      # change p-value in table
+      tmp_loop_df$pval_adjust[tmp_loop_df$OTU == tmp_OTU & tmp_loop_df$contrast == paste0("C - ",tmp_ttt)] <- tmp_pchisq
+      
+    }
+
+    
+    
+  }
+  
+  if (tmp_abund_C$abund_median >= tmp_thrld) {
+    # in which treatment abundance =0
+    tmp_ttts = tmp_data$treatment[tmp_data$abund_sum ==0]
+    
+    for (tmp_ttt in tmp_ttts) {
+      
+      # abundance in samples
+      tmp1 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == "C"]
+      tmp2 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == tmp_ttt]
+      
+      # LRT
+      tmp_logLik1 <- sum(dpois(tmp1,mean(tmp1), log=TRUE)) +
+        sum(dpois(tmp2,mean(tmp2), log=TRUE))
+      tmp_logLik0 <- sum(dpois(c(tmp1,tmp2), mean(c(tmp1,tmp2)), log=TRUE)) 
+      tmp_LRT <- 2*(tmp_logLik1 - tmp_logLik0)
+      tmp_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE)
+      
+      # change p-value in table
+      tmp_loop_df$pval_adjust[tmp_loop_df$OTU == tmp_OTU & tmp_loop_df$contrast == paste0("C - ",tmp_ttt)] <- tmp_pchisq
+      
+    }
+    
+  }
+  
+}
+
+stat_otu_emmeans_fltr = tmp_loop_df
+
+```
+
+
+# Phylogenetic signal
+
+Phylogenetic signals were tested for the estimated effect of each coalescence treatment (Equation 3) and for the relative effect (F values) of the community properties (Equation 4) on each OTU abundance using the Pagel’s Lambda method of the phylosig function from the phytools package (version 1.5-1).
+
+```{r coalescence_treatment_effects}
+# /!\ need tmp_heatmap from {r write tree: heatmap OTU estimates, comparison with control}
+
+library(phytools)
+
+# tree
+tmp_ps = ps_16S_fltr
+tmp_tree = phy_tree(tmp_ps)
+
+# loop
+tmp_loop_df <- tibble()
+tmp_loop_df_lambda <- tibble()
+tmp_name_ttt <- colnames(tmp_heatmap)[-1]
+for (tmp_i in tmp_name_ttt) {
+  
+  # trait
+  tmp_trait = unlist(tmp_heatmap[,tmp_i])
+  names(tmp_trait) <- tmp_heatmap$OTU
+  
+  # phylo signal
+  tmp_lambda <- phytools::phylosig(tmp_tree,tmp_trait,method = "lambda",test = T,nsim = 999)
+  tmp_K <- phytools::phylosig(tmp_tree,tmp_trait,method = "K",test = T,nsim = 999)
+  
+  # extract loop data
+  tmp <- tibble("treatment"=tmp_i,
+                "method"=c("lambda","K"),
+                "phylo_sig"=c(tmp_lambda$lambda,tmp_K$K),
+                "pval"=c(tmp_lambda$P,tmp_K$P))
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  
+  # etract lmbda data
+  tmp <- tibble("treatment"=tmp_i,
+                "lambda"=tmp_lambda$lambda,
+                "LR"=2*(tmp_lambda$logL- tmp_lambda$logL0),
+                "pval"=tmp_lambda$P)
+  tmp_loop_df_lambda <- rbind(tmp_loop_df_lambda,tmp)
+  
+}
+
+# pval adjust
+tmp_loop_df[,"pval_adjust"] <- tmp_loop_df$pval * nrow(tmp_loop_df)
+tmp_loop_df[,"asterisk"] <- ifelse(tmp_loop_df$pval_adjust <= 0.05,"*","")
+tmp_loop_df_lambda[,"pval_adjust"] <- tmp_loop_df_lambda$pval * nrow(tmp_loop_df_lambda)
+tmp_loop_df_lambda[,"asterisk"] <- ifelse(tmp_loop_df_lambda$pval_adjust >= 0.05,"","*")
+
+
+# plot
+tmp_loop_df$treatment <- factor(tmp_loop_df$treatment,levels = rev(colnames(tmp_heatmap)[-1]))
+
+ggplot(tmp_loop_df) +
+ aes(x = treatment, y = phylo_sig, fill = method) +
+ geom_col(position = position_dodge(preserve = "single")) +
+ scale_fill_manual(values = c("#999999","#333333")) +
+ coord_flip() +
+ theme_light()
+
+# extract lambda data
+write.csv(tmp_loop_df_lambda,"C:/Users/srhuet/Downloads/tmp_phylosig.csv",quote = F,row.names = F)
+
+
+```
+
+```{r F_values}
+# /!\ need tmp_data from {r write tree multibar: F_value of OTU significant variables}
+
+library(phytools)
+
+# tree
+tmp_ps = ps_16S_fltr
+tmp_tree = phy_tree(tmp_ps)
+
+# loop
+tmp_loop_df <- tibble()
+tmp_loop_df_lambda <- tibble()
+tmp_name_var <- c("a","b","d","b:a","a:d","b:d","b:a:d")
+for (tmp_i in tmp_name_var) {
+  
+  # trait
+  tmp_trait = unlist(tmp_data[,tmp_i])
+  names(tmp_trait) <- tmp_data$OTU
+  
+  # phylo signal
+  tmp_lambda <- phytools::phylosig(tmp_tree,tmp_trait,method = "lambda",test = T,nsim = 999)
+  tmp_K <- phytools::phylosig(tmp_tree,tmp_trait,method = "K",test = T,nsim = 999)
+  
+  # extract loop data
+  tmp <- tibble("var"=tmp_i,
+                "method"=c("lambda","K"),
+                "phylo_sig"=c(tmp_lambda$lambda,tmp_K$K),
+                "pval"=c(tmp_lambda$P,tmp_K$P))
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  
+  # etract lmbda data
+  tmp <- tibble("var"=tmp_i,
+                "lambda"=tmp_lambda$lambda,
+                "LR"=2*(tmp_lambda$logL- tmp_lambda$logL0),
+                "pval"=tmp_lambda$P)
+  tmp_loop_df_lambda <- rbind(tmp_loop_df_lambda,tmp)
+  
+}
+
+# pval adjust
+tmp_loop_df[,"pval_adjust"] <- tmp_loop_df$pval * nrow(tmp_loop_df)
+tmp_loop_df[,"asterisk"] <- ifelse(tmp_loop_df$pval_adjust <= 0.05,"*","")
+tmp_loop_df_lambda[,"pval_adjust"] <- tmp_loop_df_lambda$pval * nrow(tmp_loop_df_lambda)
+tmp_loop_df_lambda[,"asterisk"] <- ifelse(tmp_loop_df_lambda$pval_adjust >= 0.05,"","*")
+
+
+# plot
+tmp_loop_df$var <- factor(tmp_loop_df$var,levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+
+ggplot(tmp_loop_df) +
+ aes(x = var, y = phylo_sig, fill = method) +
+ geom_col(position = position_dodge(preserve = "single")) +
+ scale_fill_manual(values = c("#999999","#333333")) +
+ coord_flip() +
+ theme_light()
+
+# extract lambda data
+write.csv(tmp_loop_df_lambda,"C:/Users/srhuet/Downloads/tmp_phylosig.csv",quote = F,row.names = F)
+
+
+```
+
+# itol
+
+## extract data
+
+```{r write tree}
+library(ape)
+
+tmp_ps = ps_16S_fltr
+
+tmp_tree = tmp_ps@phy_tree
+
+write.tree(tmp_tree,"tmp_itol_tree.tre")
+
+```
+
+```{r write tree: taxo}
+
+tmp_itol_taxo =taxtab
+tmp_itol_taxo[,"range"] <- rep("range", nrow(tmp_itol_taxo))
+tmp_itol_taxo <- tmp_itol_taxo[,c("OTU","range","color","taxa")]
+
+write.table(tmp_itol_taxo,"tmp_itol_tree_taxo.txt",quote = F,sep = ",",row.names = F)
+
+
+```
+
+
+```{r write tree multibar: % var expl of significant variables}
+
+tmp_multibar = stat_otu_aov_o
+# subset data
+tmp_multibar <- tmp_multibar %>%
+  dplyr::filter(var != "Residuals")
+
+# select data
+tmp_multibar = tibble("OTU"= tmp_multibar$OTU,
+                  "var"= tmp_multibar$var,
+                  "sgnf_pct_expl"= tmp_multibar$sgnf_pct_expl)
+
+# change NAs with zeros
+tmp_multibar$sgnf_pct_expl[is.na(tmp_multibar$sgnf_pct_expl)] <- 0
+
+# wrangle data
+tmp_multibar <- tidyr::pivot_wider(tmp_multibar,names_from = var, values_from = sgnf_pct_expl)
+
+# write csv
+write.csv(tmp_multibar,file = "Data/itol_stat_otu_aov.csv",quote = F,row.names = F)
+
+```
+
+
+```{r heatmap}
+
+# select data
+tmp_data = stat_otu_emmeans_fltr %>% # remove OTUs for which model didnt work
+  filter(g1 == "C") %>%
+  # create heatmap column
+  mutate(heatmap = case_when(
+    # inverse to have ttt-C
+    pval_adjust <= 0.05 ~ - estimate,
+    .default = 0),
+    signif_comp = g2
+    ) %>%
+  # select data
+  select(OTU,signif_comp,heatmap) %>% 
+  # set values between -6 and 6
+  mutate(
+    heatmap = case_when(
+      heatmap < -6 ~ -6,
+      heatmap > 6 ~ 6,
+      .default = heatmap
+    )
+  )
+
+# add missing otu
+tmp_missing_OTUs = expand.grid(
+  setdiff(taxa_names(ps_16S_fltr),unique(tmp_data$OTU)),
+  unique(tmp_data$signif_comp),stringsAsFactors = F) %>% 
+  rename(OTU = Var1,signif_comp = Var2) %>%
+  mutate(heatmap = 0)
+tmp_data <- tmp_data %>%
+  full_join(.,tmp_missing_OTUs)
+
+# wrangle data
+tmp_heatmap <- pivot_wider(tmp_data,names_from = signif_comp, values_from = heatmap)
+
+# extract data
+#write.csv(tmp_heatmap,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+# COLOR_MIN,#3399FF / COLOR_MAX,#FF3366
+
+```
+
+```{r rel_abund_in_susp}
+
+tmp_ps = ps_16S_susp
+# merge samples by treatment
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+## calculate relative abundance
+tmp_ps = transform_sample_counts(tmp_ps, function(x) x / sum(x, na.rm = T))
+
+# create final df
+tmp_data <- t(tmp_ps@otu_table@.Data)
+
+tmp_data = tibble("OTU"=rownames(tmp_data),
+                  #"T0"= (tmp_data[,"T0"]),
+                  "susp_C"= (tmp_data[,"susp_C"]),
+                  "susp_MAC_a1"= (tmp_data[,"susp_MAC_a1"]),
+                  "susp_MAC_a2"= (tmp_data[,"susp_MAC_a2"]),
+                  "susp_PEB_a1"= (tmp_data[,"susp_PEB_a1"]),
+                  "susp_PEB_a2"= (tmp_data[,"susp_PEB_a2"]))
+
+# plot quantiles
+tmp_data %>%
+  pivot_longer(!OTU,names_to = "susp",values_to = "relab") %>%
+  filter(relab >0) %>%
+  ggplot() +
+  aes(x=susp,y=relab)+
+  geom_boxplot() +
+  geom_jitter(width = 0.25)+
+  scale_y_log10() +
+  theme_light()
+  
+# convert to quantile 
+tmp_quantiles = tmp_data %>% 
+  mutate_at(
+    vars(one_of( "susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")),
+    funs(case_when(
+      . == 0 ~ 0,
+      . > 0 & . <= quantile(.[. > 0],0.1) ~ 1/10,
+      . > quantile(.[. > 0],0.1) & . <= quantile(.[. > 0],0.2) ~ 2/10,
+      . > quantile(.[. > 0],0.2) & . <= quantile(.[. > 0],0.3) ~ 3/10,
+      . > quantile(.[. > 0],0.3) & . <= quantile(.[. > 0],0.4) ~ 4/10,
+      . > quantile(.[. > 0],0.4) & . <= quantile(.[. > 0],0.5) ~ 5/10,
+      . > quantile(.[. > 0],0.5) & . <= quantile(.[. > 0],0.6) ~ 6/10,
+      . > quantile(.[. > 0],0.6) & . <= quantile(.[. > 0],0.7) ~ 7/10,
+      . > quantile(.[. > 0],0.7) & . <= quantile(.[. > 0],0.8) ~ 8/10,
+      . > quantile(.[. > 0],0.8) & . <= quantile(.[. > 0],0.9) ~ 9/10,
+      . > quantile(.[. > 0],0.9) ~ 10/10
+      ))) %>%
+  filter(OTU %in% taxa_names(ps_16S_fltr)) 
+
+# convert to quantile 
+tmp_quantiles = tmp_data %>% 
+  mutate_at(
+    vars(one_of( "susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")),
+    funs(case_when(
+      . == 0 ~ 0,
+      . > 0 & . <= quantile(.[. > 0],0.25) ~ 1/4,
+      . > quantile(.[. > 0],0.25) & . <= quantile(.[. > 0],0.50) ~ 2/4,
+      . > quantile(.[. > 0],0.50) & . <= quantile(.[. > 0],0.75) ~ 3/4,
+      . > quantile(.[. > 0],0.75) ~ 4/4
+      ))) %>%
+  filter(OTU %in% taxa_names(ps_16S_fltr)) 
+
+# select OTU in microcosm
+tmp_rel_abund_in_susp = tibble("OTU"=taxa_names(ps_16S_fltr)) %>%
+  left_join(.,tmp_quantiles) %>%
+  dplyr::select(OTU,susp_C,susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2)
+# replace NAs
+tmp_rel_abund_in_susp[is.na(tmp_rel_abund_in_susp)] <- 0
+  
+# extract data
+write.table(tmp_rel_abund_in_susp,"tmp_itol_tree_data.txt",quote = F,sep = ",")
+
+```
+
+```{r network_M0}
+
+tmp_network_M0 = network_M0_edges %>%
+  mutate(
+    # add edge color & style
+    color = case_when(
+      value > 0 ~ "#3399FF",
+      .default = "#FF3366"),
+    style = "normal",
+    # edge absolute values
+    value = abs(value)
+  ) %>%
+  select(source,target,value,color,style)
+
+# extract data
+write.table(tmp_network_M0,"itol/tmp_itol_connection.txt",quote = F,sep = ",",row.names = F)
+
+```
+
+```{r network_M0_subset}
+
+# Firmicutes, alpha et gamma proteobacteria et parmis ces dernieres, uniquement celles significatives par DAA dans au moins 1/3 des traitments stp ?
+
+# in how much treatment OTUs are significantly differentially abundant
+tmp_itol_subset = tmp_heatmap %>%
+  group_by(OTU) %>%
+  mutate(
+    up = rowSums(across(where(is.numeric), ~ .x > 0)),
+    down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+  # add taxa
+  rowwise() %>%
+  mutate(taxa = taxtab$taxa[taxtab$OTU == OTU]) %>%
+  # which OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") are significantly differentially abundant in >= 3 treatment
+  filter(
+    taxa %in% c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes")
+  ) %>%
+  filter(
+    up >= 12/3 | down >= 12/3
+  )
+
+# tree ----
+
+library(ape)
+
+tmp_ps = ps_16S_fltr
+tmp_ps <- subset_taxa(tmp_ps,taxa_names(tmp_ps) %in% tmp_itol_subset$OTU)
+
+tmp = tmp_ps@phy_tree
+
+write.tree(tmp,"itol/tmp_itol_tree.tre")
+
+# heatmap ----
+
+tmp <- tmp_heatmap %>%
+  filter(OTU)
+
+# rel abund in susp ----
+
+# network ----
+tmp_network_M0 = network_M0_edges %>%
+  mutate(
+    # add edge color & style
+    color = case_when(
+      value > 0 ~ "#3399FF",
+      .default = "#FF3366"),
+    style = "normal",
+    # edge absolute values
+    value = abs(value)
+  ) %>%
+  select(source,target,value,color,style) %>%
+  # filter OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") that are significantly differentially abundant in >= 3 treatments
+  filter(source %in% tmp$OTU & target %in% tmp$OTU) 
+
+
+# extract data
+write.table(tmp_network_M0,"itol/tmp_itol_connection.txt",quote = F,sep = ",",row.names = F)
+
+```
+
+## analyse itol
+
+### Comparison between coalescence and community property effects
+
+```{r comp_heatmap_multibar}
+
+# which OTUs are affected by coal
+tmp_df1 = stat_otu_emmeans_fltr %>% 
+  filter(g1 == "C" & pval_adjust <= 0.05) %>%
+  mutate(
+    sign_comp = case_when(
+      # /!\ up = estimates <0
+      estimate <0 ~ "up",
+      estimate >0 ~ "down"
+      )
+    ) %>%
+  select(OTU,sign_comp) %>%
+  unique(.)
+  
+
+# which OTUs have signif fval
+tmp_df2 <- stat_otu_aov_o %>%
+  filter(bonferroni <= 0.05) %>%
+  select(OTU,var,sgnf_pct_expl)
+
+# how many sign_comp by var
+tmp_df <- full_join(tmp_df1,tmp_df2,by = "OTU",relationship = "many-to-many") %>%
+  na.omit(.)
+
+# plot
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+tmp_df %>%
+  # summarise: MEAN
+  dplyr::group_by(sign_comp,var) %>%
+  dplyr::summarise(mean_pct = mean(sgnf_pct_expl)) %>%
+  mutate(var_type = case_when(
+    var %in% c("a","b","d") ~ "main",
+    var %in% c("a:b","a:d","b:d") ~ "double",
+    var %in% c("a:b:d") ~ "triple"
+    )) %>%
+  mutate(
+    var = factor(var,levels = rev(c("a","b","d","a:b","a:d","b:d","a:b:d"))),
+    var_type = factor(var_type,levels = c("main","double","triple")),
+    sign_comp = factor(sign_comp,levels = c("up","down"))
+    ) %>%
+  ggplot() +
+  aes(x= sign_comp, y= mean_pct, fill= var)+
+  geom_bar(stat = "identity", position = "stack")+
+  scale_fill_manual(values = tmp_colors)+
+  coord_flip()+
+  facet_grid(sign_comp~var_type,
+             scales = "free",
+             switch = "y", 
+             space = "free_y") +
+  theme_classic() 
+
+# test diff for each var between up / down
+# linear model
+tmp_lm = lm(tmp_df$sgnf_pct_expl ~ tmp_df$var*tmp_df$sign_comp, na.action = na.omit )
+summary(tmp_lm)
+# anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+
+# post hoc Tukey test
+library(agricolae)
+tmp_comp <- HSD.test(tmp_aov,c("tmp_df$var","tmp_df$sign_comp"),alpha = 0.05,group = T,console = T)
+# tibble with statistical groups
+tmp_stat = tibble("groups"=rownames(tmp_comp[["groups"]]),
+                  "mean"=tmp_comp[["groups"]][["tmp_df$rel_fval"]],
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+tmp_stat
+# OR
+tmp_emmeans = emmeans(tmp_lm,~c(var,sign_comp))
+test(pairs(tmp_emmeans, by = "var"), by = NULL, adjust = "bonferroni") # see adjust method?
+  
+```
+
+### Comparison with taxonomic affiliation
+
+```{r comp_heatmp_multibar_taxa}
+
+# which OTUs have signif fval
+tmp_df2 <- stat_otu_aov_o %>%
+  filter(bonferroni <= 0.05) %>%
+  select(OTU,var,sgnf_pct_expl)
+
+
+# how many sign_comp by var
+tmp_df <- tmp_df2 %>%
+  na.omit(.) %>%
+  # add taxo
+  left_join(.,taxtab[,c("OTU","taxa")],by="OTU") %>%
+  # summarise: MEAN
+  dplyr::group_by(taxa,var) %>%
+  dplyr::summarise(mean_pct = mean(sgnf_pct_expl)) %>% ungroup() 
+# add missing taxa
+tmp_missing_taxa <- expand.grid(setdiff(taxtab$taxa,tmp_df$taxa),unique(tmp_df$var)) %>%
+  rename(taxa = Var1, var = Var2) %>%
+  mutate(mean_pct = 0)
+# add order and facet variable
+tmp_df <- tmp_df %>% 
+  rbind(tmp_missing_taxa) %>%
+  mutate(var_type = case_when(
+    var %in% c("a","b","d") ~ "main",
+    var %in% c("a:b","a:d","b:d") ~ "double",
+    var %in% c("a:b:d") ~ "triple"
+    )) %>%
+  mutate(
+    var = factor(var,levels = rev(c("a","b","d","a:b","a:d","b:d","a:b:d"))),
+    var_type = factor(var_type,levels = c("main","double","triple")),
+    taxa = factor(taxa,levels = (levels(reorder(taxtab$taxa,taxtab$order)))))
+
+# plot
+tmp_colors <- c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd")
+names(tmp_colors) <- c("a","b","d","a:b","a:d","b:d","a:b:d")
+tmp_df %>%
+  ggplot() +
+  aes(x= taxa, y= mean_pct, fill= var)+
+  geom_bar(stat = "identity", position = "stack")+
+  scale_fill_manual(values = tmp_colors)+
+  coord_flip()+
+  facet_grid(taxa~var_type,
+             scales = "free",
+             switch = "y", 
+             space = "free_y") +
+  theme_classic()
+
+```
+
+### Comparison between coalescence treatment effect and OTU relative abundance in suspensions
+
+```{r comp_heatmap_susp}
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_itol) %>%
+  left_join(.,taxtab)
+
+# all OTUs
+## UP
+tmp = tmp_data %>%
+  filter(susp_C < susp_MAC_a1|susp_C < susp_MAC_a2|susp_C < susp_PEB_a1|susp_C < susp_PEB_a2)
+### only 12 OTUs more abundant in manipulated suspensions
+tmp3 <- tmp_data %>%
+  pivot_longer(cols = colnames(tmp_heatmap)[-1],names_to = "ttt",values_to = "heatmap")
+length(unique(tmp3$OTU[tmp3$heatmap > 0]))
+### 51 OTUs up in at least one coalescence treatment
+
+## DOWN
+tmp = tmp_data %>%
+  filter(susp_C > susp_MAC_a1| susp_C>susp_MAC_a2| susp_C>susp_PEB_a1| susp_C>susp_PEB_a2)
+### only 229 OTUs less abundant in manipulated suspensions
+tmp3 <- tmp_data %>%
+  pivot_longer(cols = colnames(tmp_heatmap)[-1],names_to = "ttt",values_to = "heatmap")
+length(unique(tmp3$OTU[tmp3$heatmap < 0]))
+### 51 OTUs up in at least one coalescence treatment
+
+# Alphaproteobacteria
+tmp = tmp_data %>%
+  filter(taxa == "Alphaproteobacteria" &
+           susp_C >= susp_MAC_a1 & susp_C >= susp_MAC_a2 & susp_C >= susp_PEB_a1 & susp_C >= susp_PEB_a2)
+
+tmp2 <- tmp_data %>%
+  filter(taxa == "Alphaproteobacteria" &
+           !(OTU %in% tmp$OTU))
+## only 7 OTUs more abundant in manipulated suspensions
+tmp3 <- tmp_data %>%
+  filter(taxa == "Alphaproteobacteria") %>%
+  pivot_longer(cols = colnames(tmp_heatmap)[-1],names_to = "ttt",values_to = "heatmap")
+length(unique(tmp3$OTU[tmp3$heatmap > 0]))
+## 22 OTUs up in at least one coalescence treatment
+
+```
+
+### Comaprison with network
+
+```{r comp_heatmap_susp_network}
+
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_rel_abund_in_susp) %>%
+  left_join(.,taxtab) %>%
+  mutate(
+    network_M0 = case_when(
+      OTU %in% tmp_network_M0$source | OTU %in% tmp_network_M0$target ~ T,
+      .default = F
+    )
+  ) %>%
+  # which OTUs are impacted by coalescence ttt
+  mutate(
+    heatmap = case_when(
+      MAC_a1d1!=0 | MAC_a1d2!=0 | MAC_a1d3!=0 |
+        MAC_a2d1!=0 | MAC_a2d2!=0 | MAC_a2d3!=0 |
+        PEB_a1d1!=0 | PEB_a1d2!=0 | PEB_a1d3!=0 |
+        PEB_a2d1!=0 | PEB_a2d2!=0 | PEB_a2d3!=0 ~ "heatmap"
+    ),
+    heatmap_pos = case_when(
+      MAC_a1d1>0 | MAC_a1d2>0 | MAC_a1d3>0 |
+        MAC_a2d1>0 | MAC_a2d2>0 | MAC_a2d3>0 |
+        PEB_a1d1>0 | PEB_a1d2>0 | PEB_a1d3>0 |
+        PEB_a2d1>0 | PEB_a2d2>0 | PEB_a2d3>0 ~ "up"
+    ),
+    heatmap_neg = case_when(
+      MAC_a1d1<0 | MAC_a1d2<0 | MAC_a1d3<0 |
+        MAC_a2d1<0 | MAC_a2d2<0 | MAC_a2d3<0 |
+        PEB_a1d1<0 | PEB_a1d2<0 | PEB_a1d3<0 |
+        PEB_a2d1<0 | PEB_a2d2<0 | PEB_a2d3<0 ~ "down"
+    )
+  ) %>%
+  # which OTUs are influenced by community properties
+  # which OTUs are detected in manipulated suspensions
+  mutate(
+    manip_susp = case_when(
+      susp_MAC_a1>0 | susp_MAC_a2>0 | susp_PEB_a1>0 |
+        susp_PEB_a2>0 ~ "detected"
+  ))
+  
+
+tmp_network_alpha = tmp_data %>%
+  filter(network_M0 == T
+         & taxa == "Alphaproteobacteria")
+
+```
+
+```{r network_taxo}
+
+tmp_network <- tmp_network_M0 %>%
+  # add taxa
+  rowwise() %>%
+  mutate(
+    link_taxa = paste(sort(c(taxtab$taxa[taxtab$OTU == source],
+                             taxtab$taxa[taxtab$OTU == target])),collapse = " - "),
+    link_order = paste(sort(c(taxtab$Order[taxtab$OTU == source],
+                             taxtab$Order[taxtab$OTU == target])),collapse = " - "),
+    link_family = paste(sort(c(taxtab$Family[taxtab$OTU == source],
+                             taxtab$Family[taxtab$OTU == target])),collapse = " - "),
+    link_genus = paste(sort(c(taxtab$genus_clean[taxtab$OTU == source],
+                             taxtab$genus_clean[taxtab$OTU == target])),collapse = " - ")
+  )
+
+# plot by order ----
+# geom bar = count number of links
+tmp_network %>%
+ filter(link_taxa %in% c("Alphaproteobacteria - Firmicutes",
+                         "Alphaproteobacteria - Gammaproteobacteria",
+                         "Firmicutes - Gammaproteobacteria")) %>%
+ ggplot() +
+  aes(x = link_order, fill = color) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = c(`#3399FF` = "#3399FF",`#FF3366` = "#FF3366")
+  ) +
+  labs(x = "Order", y = "Number of links") +
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(vars(link_taxa), scales = "free_y",ncol = 1) +
+  theme(legend.position = 'none')
+
+# geom boxplot = value of links
+tmp_network %>%
+ filter(link_taxa %in% c("Alphaproteobacteria - Firmicutes",
+                         "Alphaproteobacteria - Gammaproteobacteria",
+                         "Firmicutes - Gammaproteobacteria")) %>%
+ ggplot() +
+  aes(x = link_order,y = value, fill = color) +
+  geom_boxplot() +
+  scale_fill_manual(values = c(`#3399FF` = "#3399FF",`#FF3366` = "#FF3366")
+  ) +
+  labs(x = "Order", y = "Value of links") +
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(vars(link_taxa), scales = "free_y") +
+  theme(legend.position = 'none')
+
+```
+
+```{r network_multibar}
+
+
+tmp_network <- tmp_network_M0 %>%
+  # add taxa
+  rowwise() %>%
+  mutate(
+    link_taxa = paste(sort(c(taxtab$taxa[taxtab$OTU == source],
+                             taxtab$taxa[taxtab$OTU == target])),collapse = " - ")) %>%
+  filter(link_taxa %in% "Alphaproteobacteria - Firmicutes")
+
+tmp_network_multibar <- tmp_multibar %>%
+  filter(OTU %in% c(tmp_network$source,tmp_network$target)) %>%
+  # add taxo
+  left_join(.,taxtab %>% select(OTU,taxa,Order))
+
+```
+
+
+```{r nb_M0_edges_order}
+
+tmp_data <- network_M0_edges %>%
+  rowwise() %>%
+  mutate(
+    taxa_source = taxtab$taxa[taxtab$OTU == source],
+    taxa_target = taxtab$taxa[taxtab$OTU == target],
+    taxa = paste0(sort(c(taxa_source,taxa_target)),collapse =  " - ")
+  ) %>% ungroup()
+
+
+# barplot
+
+tmp_plot_data <- tmp_data %>%
+  mutate(
+    edge_sign = case_when(
+      value > 0 ~ "pos",
+      value <0 ~ "neg"
+    )
+  ) %>%
+  aggregate(edge_name ~ taxa + edge_sign, function(x) length(unique(x))) %>%
+  mutate(count = case_when(
+    edge_sign == "pos" ~ edge_name,
+    edge_sign == "neg" ~ - edge_name
+  ))
+
+tmp_plot_data %>%
+  ggplot() +
+  aes(x = taxa, y = count,fill = edge_sign) +
+  geom_col() +
+  scale_fill_manual(values = c("pos"="#FF3366","neg"="#3399FF")) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") #+
+
+  
+
+
+```
+
+
+```{r nb_edges_alpha_gamma}
+
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+
+# ALPHA & GAMMA ----
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_rel_abund_in_susp) %>%
+  left_join(.,taxtab)
+
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+  rowwise() %>%
+  filter(
+    ## taxo
+    taxa %in% c("Alphaproteobacteria","Gammaproteobacteria")
+    ## detected in susp C
+    & susp_C > 0 
+    ## detected in at least one manipulated suspension
+    & sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+    ## up in microcosms (in at least 1 community)
+    & sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+            MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+            PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+            PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 1
+    ## not down in microcosms
+    & sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+            MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+            PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+            PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+    ## in network
+    & OTU %in% network_M0_nodes
+    )
+## 10 OTUs
+
+# select networks links between these OTUs ----
+tmp_data <- network_M0_edges %>%
+  filter(
+    source %in% tmp$OTU
+    | target %in% tmp$OTU
+  ) %>%
+  # select negative links only
+  filter(value <0) %>%
+  # add taxonomy
+  rowwise() %>%
+  mutate(
+    taxa_source = taxtab$taxa[taxtab$OTU == source],
+    taxa_target = taxtab$taxa[taxtab$OTU == target],
+    taxa = paste0(sort(c(taxa_source,taxa_target)),collapse =  " - ")
+  ) %>% ungroup()
+ 
+# barplot ----
+
+tmp_plot_data <- tmp_data %>%
+  mutate(
+    edge_sign = case_when(
+      value > 0 ~ "pos",
+      value <0 ~ "neg"
+    )
+  ) %>%
+  aggregate(edge_name ~ taxa + edge_sign, function(x) length(unique(x)))
+
+tmp_plot_data %>%
+  ggplot() +
+  aes(x = taxa, y = edge_name) +
+  geom_col() +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") #+
+
+
+```
+
+
+# Chord Diagram network
+
+https://www.data-to-viz.com/graph/chord.html
+
+```{r chord_diag_example}
+
+# Libraries
+library(tidyverse)
+library(viridis)
+library(patchwork)
+library(hrbrthemes)
+library(circlize)
+library(chorddiag)  #devtools::install_github("mattflor/chorddiag")
+
+# Load dataset from github
+tmp_data <- read.table("https://raw.githubusercontent.com/holtzy/data_to_viz/master/Example_dataset/13_AdjacencyDirectedWeighted.csv", header=TRUE)
+
+# short names
+colnames(tmp_data) <- c("Africa", "East Asia", "Europe", "Latin Ame.",   "North Ame.",   "Oceania", "South Asia", "South East Asia", "Soviet Union", "West.Asia")
+rownames(tmp_data) <- colnames(tmp_data)
+
+# I need a long format
+tmp_data_long <- tmp_data %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname)
+
+# parameters
+circos.clear()
+circos.par(start.degree = 90, gap.degree = 4, track.margin = c(-0.1, 0.1), points.overflow.warning = FALSE)
+par(mar = rep(0, 4))
+
+# color palette
+tmp_mycolor <- viridis(10, alpha = 1, begin = 0, end = 1, option = "D")
+tmp_mycolor <- tmp_mycolor[sample(1:10)]
+
+# Base plot
+chordDiagram(
+  x = tmp_data_long, 
+  grid.col = tmp_mycolor,
+  transparency = 0.25,
+  directional = 1,
+  direction.type = c("arrows", "diffHeight"), 
+  diffHeight  = -0.04,
+  annotationTrack = "grid", 
+  annotationTrackHeight = c(0.05, 0.1),
+  link.arr.type = "big.arrow", 
+  link.sort = TRUE, 
+  link.largest.ontop = TRUE)
+
+# Add text and axis
+circos.trackPlotRegion(
+  track.index = 1, 
+  bg.border = NA, 
+  panel.fun = function(x, y) {
+    
+    xlim = get.cell.meta.data("xlim")
+    sector.index = get.cell.meta.data("sector.index")
+    
+    # Add names to the sector. 
+    circos.text(
+      x = mean(xlim), 
+      y = 3.2, 
+      labels = sector.index, 
+      facing = "bending", 
+      cex = 0.8
+      )
+
+    # Add graduation on axis
+    circos.axis(
+      h = "top", 
+      major.at = seq(from = 0, to = xlim[2], by = ifelse(test = xlim[2]>10, yes = 2, no = 1)), 
+      minor.ticks = 1, 
+      major.tick.length = 0.5,
+      labels.niceFacing = FALSE)
+  }
+)
+
+```
+
+```{r chord_diag_network_ProteoBacteria}
+
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+
+# ALPHA ----
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_rel_abund_in_susp) %>%
+  left_join(.,taxtab)
+
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+  rowwise() %>%
+  filter(
+    ## taxo
+    taxa %in% c("Alphaproteobacteria")
+    ## detected in susp C
+    & susp_C > 0 
+    ## detected in at least one manipulated suspension
+    & sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+    ## up in microcosms (in at least two communities)
+    & sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+            MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+            PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+            PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 2
+    ## not down in microcosms
+    & sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+            MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+            PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+            PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+    ## in network
+    & OTU %in% network_M0_nodes
+    )
+## 9 OTUs
+
+# select networks links between these OTUs
+tmp_network = network_M0_edges %>%
+  filter(
+    source %in% tmp$OTU
+    | target %in% tmp$OTU
+  ) %>%
+  # select negative links only
+  filter(value <0) %>%
+  # add taxonomy
+  left_join(.,taxtab %>% select(OTU,taxa),by=c("source"="OTU")) %>%
+  left_join(.,taxtab %>% select(OTU,taxa),by=c("target"="OTU")) %>%
+  # rename var for chord function
+  rename(rowname= taxa.x,
+         key = taxa.y)
+
+# select only variables needed for the chord diagram
+tmp_chord <- tmp_network %>%
+  select(rowname,key,value) %>%
+  arrange(.,rowname)
+
+# chord diagram
+
+# parameters
+circos.clear()
+circos.par(start.degree = 90, gap.degree = 4, track.margin = c(-0.1, 0.1), points.overflow.warning = FALSE)
+par(mar = rep(0, 4))
+
+# color palette
+tmp_mycolor <- color_palette %>% filter(set == "taxo")
+tmp_mycolor <- tmp_mycolor$color[tmp_mycolor$treatment %in% unique(c(tmp_network$key,tmp_network$rowname))]
+
+# Base plot
+chordDiagram(
+  x = tmp_chord,
+  order = sort(unique(c(tmp_network$key,tmp_network$rowname))),
+  grid.col = tmp_mycolor,
+  transparency = 0.25,
+  #directional = 1,
+  #direction.type = c("arrows", "diffHeight"), 
+  #diffHeight  = -0.04,
+  annotationTrack = "grid", 
+  annotationTrackHeight = c(0.05, 0.1),
+  link.arr.type = "big.arrow", 
+  link.sort = TRUE, 
+  link.largest.ontop = TRUE)
+
+# Add text and axis
+circos.trackPlotRegion(
+  track.index = 1, 
+  bg.border = NA, 
+  panel.fun = function(x, y) {
+    
+    xlim = get.cell.meta.data("xlim")
+    sector.index = get.cell.meta.data("sector.index")
+    
+    # Add names to the sector. 
+    circos.text(
+      x = mean(xlim), 
+      y = 3.2, 
+      labels = sector.index, 
+      facing = "bending", 
+      cex = 0.8
+      )
+
+  }
+)
+
+# GAMMA ----
+
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_rel_abund_in_susp) %>%
+  left_join(.,taxtab)
+
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+  rowwise() %>%
+  filter(
+    ## taxo
+    taxa %in% c("Gammaproteobacteria")
+    ## detected in susp C
+    & susp_C > 0 
+    ## detected in at least one manipulated suspension
+    & sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+    ## up in microcosms (in at least two communities)
+    & sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+            MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+            PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+            PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 2
+    ## not down in microcosms
+    & sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+            MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+            PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+            PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+    ## in network
+    & OTU %in% network_M0_nodes
+    )
+## 9 OTUs
+
+# select networks links between these OTUs
+tmp_network = network_M0_edges %>%
+  filter(
+    source %in% tmp$OTU
+    | target %in% tmp$OTU
+  ) %>%
+  # select negative links only
+  filter(value <0) %>%
+  # add taxonomy
+  left_join(.,taxtab %>% select(OTU,taxa),by=c("source"="OTU")) %>%
+  left_join(.,taxtab %>% select(OTU,taxa),by=c("target"="OTU")) %>%
+  # rename var for chord function
+  rename(rowname= taxa.y,
+         key = taxa.x)
+
+# select only variables needed for the chord diagram
+tmp_chord <- tmp_network %>%
+  select(rowname,key,value) %>%
+  arrange(.,rowname) 
+
+# chord diagram
+
+# parameters
+circos.clear()
+circos.par(start.degree = 90, gap.degree = 4, track.margin = c(-0.1, 0.1), points.overflow.warning = FALSE)
+par(mar = rep(0, 4))
+
+# color palette
+tmp_mycolor <- color_palette %>% filter(set == "taxo")
+tmp_mycolor <- tmp_mycolor$color[tmp_mycolor$treatment %in% unique(c(tmp_network$key,tmp_network$rowname))]
+
+# Base plot
+chordDiagram(
+  x = tmp_chord,
+  order = sort(unique(c(tmp_network$key,tmp_network$rowname))),
+  grid.col = tmp_mycolor,
+  transparency = 0.25,
+  #directional = 1,
+  #direction.type = c("arrows", "diffHeight"), 
+  #diffHeight  = -0.04,
+  annotationTrack = "grid", 
+  annotationTrackHeight = c(0.05, 0.1),
+  link.arr.type = "big.arrow", 
+  link.sort = TRUE, 
+  link.largest.ontop = TRUE)
+
+# Add text and axis
+circos.trackPlotRegion(
+  track.index = 1, 
+  bg.border = NA, 
+  panel.fun = function(x, y) {
+    
+    xlim = get.cell.meta.data("xlim")
+    sector.index = get.cell.meta.data("sector.index")
+    
+    # Add names to the sector. 
+    circos.text(
+      x = mean(xlim), 
+      y = 3.2, 
+      labels = sector.index, 
+      facing = "bending", 
+      cex = 0.8
+      )
+
+  }
+)
+
+```
+
+
+

@@ -1,0 +1,28 @@
+{
+    "id": "1C1B50F2",
+    "path": "C:/Users/sahuet/OneDrive/Thesis/BISCAL_xp2_coal/Gitlab_xp2/3_stat_OTU.Rmd",
+    "project_path": "3_stat_OTU.Rmd",
+    "type": "r_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1712154401184.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "chunk_output_type": "console",
+        "source_window_id": "",
+        "Source": "Source",
+        "docOutlineVisible": "1",
+        "cursorPosition": "685,28",
+        "scrollLine": "0"
+    },
+    "folds": "31|0|0|0|\n77|0|0|0|\n165|0|0|0|\n328|0|0|0|\n471|0|0|0|\n483|0|0|0|\n507|0|0|0|\n548|0|0|0|\n622|0|0|0|\n",
+    "lastKnownWriteTime": 1714742335,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1715091722482,
+    "read_only": false,
+    "read_only_alternatives": []
+}

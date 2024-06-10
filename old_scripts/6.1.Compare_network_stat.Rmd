@@ -1,0 +1,1931 @@
+---
+title: "6.1.Network_analyses"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(PLNmodels)
+library(tibble)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggplot2)
+
+library(gdata)
+
+# load data
+load("E:/Research/Thesis/EMFEED/BISCAL_xp2_coal/R_xp2_coal/.RData")
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# plot OTU abundance
+
+```{r plot 1 OTU abundance}
+
+tmp_OTU = "OTU-10847"
+
+tmp_ps = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps)==tmp_OTU,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+# treatment colors
+tmp_colors <- Color_sets[Color_sets$set == "treatments",c("treatment","color","order")]  
+tmp_colors <- tmp_colors[tmp_colors$treatment %in% tmp_data$treatment,]
+
+
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance,fill = treatment))+
+  geom_boxplot()+
+  geom_jitter(shape = 21,size=2, alpha=0.5) +
+  labs(title = tmp_OTU,y="Relative abundance (among non filtered OTUs)",x="Treatments")+
+  scale_fill_manual(values = tmp_colors$color) +
+  #scale_color_manual(values = tmp_colors$color) +
+  #labs(title = tmp_OTU,y="Raw abundance (log10 scale)",x="Treatments")+
+  #scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  theme(axis.text.x  = element_text(angle = 90))
+  
+p
+
+```
+
+```{r plot several OTU abundance}
+
+#tmp_OTUs = sort(setdiff(taxa_names(ps_16S_fltr),taxa_names(tmp_ps_fltr2)))
+#tmp_OTUs = tmp_nodes
+#tmp_OTUs = c(45,2147,715,16154,4225,52,56220)
+#tmp_OTUs <- paste0("OTU-",tmp_OTUs)
+tmp_OTUs <- c("OTU-219","OTU-26710","OTU-10847")
+
+tmp_ps = ps_16S_fltr
+## prune taxa in most abund
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% taxa_names(ps_16S_fltr),tmp_ps)
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% tmp_OTUs,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+# treatment colors
+tmp_colors <- Color_sets$color[Color_sets$set == "treatments"]
+names(tmp_colors) <- Color_sets$treatment[Color_sets$set == "treatments"]
+tmp_colors <- tmp_colors[names(tmp_colors) %in% tmp_data$treatment]
+
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance,
+                         fill=treatment))+
+  geom_boxplot(outlier.size = 0.1,lwd=0.1)+
+  geom_point(color="#333333", size=0.1) +
+  labs(title = "Node OTUs",y="Relative abundance (among filtered OTUs)",x="Treatments")+
+#  labs(title = tmp_OTUs,y="Raw abundance (log10 scale)",x="Treatments")+
+  #scale_y_log10()+
+  scale_y_continuous(trans = "asn") +
+  scale_fill_manual(values = tmp_colors)+
+  #geom_hline(yintercept = 0.25/100)+
+  #geom_hline(yintercept = 0.1/100)+
+  geom_hline(yintercept = 0)+
+  facet_grid(.~Class+OTU)+
+  theme_light()+
+  theme(axis.text.x  = element_text(vjust=0.5, size=12,angle = 90))
+
+p
+
+```
+
+# network
+
+##  model
+```{r extract network}
+
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+
+tmp_nodes = PLN_model.StARS_xp2_nodes
+
+```
+
+```{r subset network from Venn (related to 1 or more altered properties)}
+
+# EDGES
+## draw venn
+library(ggVennDiagram)
+tmp_venn <- list("all"=PLN_model.StARS_xp2_edges$edge_name,
+                 "div"=PLN_model.StARS_incub_edges$edge_name,
+                 "compo"=PLN_model.StARS_broth_edges$edge_name,
+                 "dens"=PLN_model.StARS_density_edges$edge_name)
+tmp_venn <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+tmp_venn_df <- tmp_venn[["layers"]][[1]][["data"]]
+#view(tmp_venn_df)
+## extract edges
+tmp_venn_edges <- unlist(tmp_venn_df$item[tmp_venn_df$name == "all..div..compo..dens"])
+## retrieve venn edges from network
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+tmp_edges_otu = tmp_edges_otu[!(tmp_edges_otu$edge_name %in% tmp_venn_edges),]
+
+# NODES
+tmp_nodes = unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+
+
+```
+
+```{r subset network from Venn (related to all altered properties)}
+
+# EDGES
+## draw venn
+library(ggVennDiagram)
+tmp_venn <- list("all"=PLN_model.StARS_xp2_edges$edge_name,
+                 "div"=PLN_model.StARS_incub_edges$edge_name,
+                 "compo"=PLN_model.StARS_broth_edges$edge_name,
+                 "dens"=PLN_model.StARS_density_edges$edge_name)
+tmp_venn <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+tmp_venn_df <- tmp_venn[["layers"]][[1]][["data"]]
+#view(tmp_venn_df)
+## extract edges
+tmp_venn_edges <- unlist(tmp_venn_df$item[tmp_venn_df$name == "all"])
+## retrieve venn edges from network
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+tmp_edges_otu = tmp_edges_otu[tmp_edges_otu$edge_name %in% tmp_venn_edges,]
+
+# NODES
+tmp_nodes = tmp = unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+
+
+```
+
+```{r subset network from Venn (not related to altered properties)}
+
+# EDGES
+## draw venn
+library(ggVennDiagram)
+tmp_venn <- list("all"=PLN_model.StARS_xp2_edges$edge_name,
+                 "div"=PLN_model.StARS_incub_edges$edge_name,
+                 "compo"=PLN_model.StARS_broth_edges$edge_name,
+                 "dens"=PLN_model.StARS_density_edges$edge_name)
+tmp_venn <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+tmp_venn_df <- tmp_venn[["layers"]][[1]][["data"]]
+#view(tmp_venn_df)
+## extract edges
+tmp_venn_edges <- tmp_venn_df$item[[15]]
+## retrieve venn edges from network
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+tmp_edges_otu = tmp_edges_otu[tmp_edges_otu$edge_name %in% tmp_venn_edges,]
+
+# NODES
+tmp_nodes = tmp = unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+
+
+```
+
+## itol
+
+```{r itol connections}
+
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+
+tmp_itol = tmp_edges_otu[,c("source","target","value")]
+
+# add edge color & style
+tmp_itol[,"color"] <- ifelse(tmp_itol$value > 0,"#FF3366","#3399FF")
+#tmp_itol[,"color"] <- ifelse(tmp_itol$value > 0,"#ff8eaa","#3399ff")
+
+tmp_itol[,"style"] <- rep("normal",nrow(tmp_itol))
+# edge absolute values
+tmp_itol$value <- abs(tmp_itol$value)
+
+# extract data
+write.csv(tmp_itol,paste0("iTOL/tmp_itol_connection.csv"),row.names = F,quote = F)
+
+
+```
+
+
+# nodes and edges
+
+```{r edges infos}
+
+tmp_source_taxa <- tibble("source"=tmp_taxtab$OTU[tmp_taxtab$OTU %in% tmp_edges_otu$source],
+                            "source_taxa"=tmp_taxtab$taxa[tmp_taxtab$OTU %in% tmp_edges_otu$source])
+tmp_target_taxa <- tibble("target"=tmp_taxtab$OTU[tmp_taxtab$OTU %in% tmp_edges_otu$target],
+                            "target_taxa"=tmp_taxtab$taxa[tmp_taxtab$OTU %in% tmp_edges_otu$target])
+tmp_edges_final <- left_join(tmp_edges_otu,tmp_source_taxa,by="source")
+tmp_edges_final <- left_join(tmp_edges_final,tmp_target_taxa,by="target")
+
+
+```
+
+
+```{r nodes infos}
+
+# nb edges by nodes
+tmp_nodes = tibble("OTU"= rownames(table(c(tmp_edges_otu$source,tmp_edges_otu$target))),
+                   "nb_edges"=table(c(tmp_edges_otu$source,tmp_edges_otu$target)))
+
+tmp_nodes <- left_join(tmp_nodes,tmp_taxtab)
+
+# rel abund in treatment
+tmp_ps0 = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps0,function(x) x / sum(x))
+## prune nodes
+tmp_ps <- prune_taxa(taxa_names(tmp_ps) %in% tmp_nodes$OTU, tmp_ps)
+## extract rel abund by treatment
+tmp_psmelt = psmelt(tmp_ps)
+tmp_nodes_relab = tmp_psmelt[,c("OTU","treatment","Abundance")]
+
+# differential abund to C
+tmp_nodes_diff_abund = stat_q2_otu_comparison_sum[stat_q2_otu_comparison_sum$OTU %in% tmp_nodes$OTU,]
+
+
+
+
+```
+
+## compare thresholds
+
+```{r nb of edges and nodes depending on the threshold & firmicutes}
+
+tmp_model.StARS = PLN_model_StARS_xp2_coal
+tmp_ps = ps_16S_fltr
+
+tmp_data = tibble()
+
+for (tmp_thrld in c(0.09,0.08,0.07,0.06,0.05)) {
+  # graph adjacency matrix (value = partial correlation value)
+  tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+  # remove redundant data from the matrix
+  diag(tmp_adjacency.StARS)=0
+  tmp_adj=tmp_adjacency.StARS
+  tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+
+  # extract edges above a threshold and involved nodes
+  tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+  tmp_edges_val = tmp_adj[tmp_edges]
+  tmp_edges_otu <- tibble("source"=rownames(tmp_adj)[tmp_edges[,1]],
+                          "target"=colnames(tmp_adj)[tmp_edges[,2]],
+                          "value"=tmp_edges_val)
+  tmp_source_taxa <- tibble("source"=tmp_taxtab$OTU[tmp_taxtab$OTU %in% tmp_edges_otu$source],
+                            "source_taxa"=tmp_taxtab$taxa[tmp_taxtab$OTU %in% tmp_edges_otu$source])
+  tmp_target_taxa <- tibble("target"=tmp_taxtab$OTU[tmp_taxtab$OTU %in% tmp_edges_otu$target],
+                            "target_taxa"=tmp_taxtab$taxa[tmp_taxtab$OTU %in% tmp_edges_otu$target])
+  tmp_edges_final <- left_join(tmp_edges_otu,tmp_source_taxa,by="source")
+  tmp_edges_final <- left_join(tmp_edges_final,tmp_target_taxa,by="target")
+  # extract involved nodes
+  tmp_nodes <- unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+  
+  # Firmicutes
+  tmp_firmicutes_edges = tmp_edges_final[tmp_edges_final$source_taxa == "Firmicutes" |
+                                           tmp_edges_final$target_taxa == "Firmicutes" ,]
+  # global df
+  tmp_df = tibble("thrld"=tmp_thrld,
+                  "nb_edges"=nrow(tmp_edges_final),
+                  "nb_poscor"=nrow(tmp_edges_final[tmp_edges_final$value >0,]),
+                  "nb_negcor"=nrow(tmp_edges_final[tmp_edges_final$value <0,]),
+                  "nb_nodes"=length(tmp_nodes),
+                  "nb_cor_firmi"=nrow(tmp_firmicutes_edges),
+                  "nb_poscor_firmi"=nrow(tmp_firmicutes_edges[tmp_firmicutes_edges$value >0,]),
+                  "nb_negcor_firmi"=nrow(tmp_firmicutes_edges[tmp_firmicutes_edges$value <0,]),
+                  "nb_poscor_firmigamma"=nrow(tmp_firmicutes_edges[tmp_firmicutes_edges$value >0 &
+                                                                     (tmp_firmicutes_edges$source_taxa
+                                                                      =="Gammaproteobacteria" |
+                                                                      tmp_firmicutes_edges$target_taxa
+                                                                      =="Gammaproteobacteria"),]),
+                  "nb_negcor_firmigamma"=nrow(tmp_firmicutes_edges[tmp_firmicutes_edges$value <0 &
+                                                                     (tmp_firmicutes_edges$source_taxa
+                                                                      =="Gammaproteobacteria" |
+                                                                      tmp_firmicutes_edges$target_taxa
+                                                                      =="Gammaproteobacteria"),]),
+                  "nb_poscor_firmialpha"=nrow(tmp_firmicutes_edges[tmp_firmicutes_edges$value >0 &
+                                                                     (tmp_firmicutes_edges$source_taxa
+                                                                      =="Alphaproteobacteria" |
+                                                                      tmp_firmicutes_edges$target_taxa
+                                                                      =="Alphaproteobacteria"),]),
+                  "nb_negcor_firmialpha"=nrow(tmp_firmicutes_edges[tmp_firmicutes_edges$value <0 &
+                                                                     (tmp_firmicutes_edges$source_taxa
+                                                                      =="Alphaproteobacteria" |
+                                                                      tmp_firmicutes_edges$target_taxa
+                                                                      =="Alphaproteobacteria"),]))
+  
+  tmp_data = rbind(tmp_data,tmp_df)
+
+  gdata::mv("tmp_edges_final",paste0("tmp_edges_final_",tmp_thrld))
+  gdata::mv("tmp_nodes",paste0("tmp_nodes_",tmp_thrld))
+
+}
+
+# plot nb edges 
+tmp_plot_data = tmp_data[,c("thrld","nb_poscor_firmialpha","nb_negcor_firmialpha")]
+# plot nb edges 
+tmp_plot_data = tmp_data[,c("thrld","nb_poscor","nb_negcor")]
+colnames(tmp_plot_data) = c("thrld","Positive","Negative")
+tmp_plot_data <- pivot_longer(tmp_plot_data,!thrld, names_to = "edges_type", values_to = "nb_edge")
+
+p <- ggplot(tmp_plot_data, aes(x=thrld, y=nb_edge,
+                               fill= edges_type))+
+  geom_bar(stat = "identity", position = "stack")+
+  theme_classic()+
+  labs(x="Treatment Network", y= "Edges number",
+       title = "Sign of network edges depending on the threshold", color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+
+# plot nb edges between firmicutes and gamma prot
+tmp_plot_data = tmp_data[,c("thrld","nb_poscor_firmigamma","nb_negcor_firmigamma")]
+colnames(tmp_plot_data) = c("thrld","Positive","Negative")
+tmp_plot_data <- pivot_longer(tmp_plot_data,!thrld, names_to = "edges_type", values_to = "nb_edge")
+
+p <- ggplot(tmp_plot_data, aes(x=thrld, y=nb_edge,
+                               fill= edges_type))+
+  geom_bar(stat = "identity", position = "stack")+
+  theme_classic()+
+  labs(x="Treatment Network", y= "Edges number",
+       title = "Sign of network edges between Firmicutes and Gammaproteobacteria depending on the threshold",
+       color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+
+# plot nb edges between firmicutes and alpha prot
+tmp_plot_data = tmp_data[,c("thrld","nb_poscor_firmialpha","nb_negcor_firmialpha")]
+colnames(tmp_plot_data) = c("thrld","Positive","Negative")
+tmp_plot_data <- pivot_longer(tmp_plot_data,!thrld, names_to = "edges_type", values_to = "nb_edge")
+
+p <- ggplot(tmp_plot_data, aes(x=thrld, y=nb_edge,
+                               fill= edges_type))+
+  geom_bar(stat = "identity", position = "stack")+
+  theme_classic()+
+  labs(x="Treatment Network", y= "Edges number",
+       title = "Sign of network edges between Firmicutes and Alphaproteobacteria depending on the threshold",
+       color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+```
+
+```{r  node taxonomy depending on the threshold}
+
+# create a df with taxonomy of nodes
+tmp_data = tibble("treatment"= c(rep("nodes_0.08",length(tmp_nodes_0.08)),
+                                 rep("nodes_0.07",length(tmp_nodes_0.07)),
+                                 rep("nodes_0.06",length(tmp_nodes_0.06))),
+                  "OTU"=c(tmp_nodes_0.08,tmp_nodes_0.07,tmp_nodes_0.06),
+                  "Abundance"= rep(1,length(tmp_nodes_0.08)+length(tmp_nodes_0.07)+length(tmp_nodes_0.06)))
+tmp_data <- left_join(tmp_data,tmp_taxtab[,c("OTU","taxa")],by="OTU")
+
+# add color
+## select taxa colors and order 
+tmp_colors <- Colors_16p
+tmp_colors[,"taxa"] <- c(tmp_most_abund[order(tmp_most_abund)],"Others","Unknown")
+tmp_colors <- tmp_colors[tmp_colors$taxa %in% tmp_data$taxa,]
+## add taxa color and order
+tmp_plot_data <- left_join(tmp_data,tmp_colors, by = "taxa")
+
+# plot
+p <- ggplot(tmp_plot_data, aes(x=treatment, y=Abundance,
+                               fill= reorder(taxa,order)))+
+  geom_bar(stat = "identity", position = "stack")+
+  theme_classic()+
+  scale_fill_manual(name = "taxa",
+                    values = tmp_colors$color)+ 
+  labs(x="Network threshold", y= "Presence in network",
+       title = "Taxonomy of network nodes depending on the threshold", color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+
+```
+
+
+
+
+# nodes rank abundance curve
+
+## for one threshold
+
+```{r rank abundance curve}
+
+tmp_nodes = PLN_model.StARS_xp2_nodes
+
+# i choose ps_fltr because it is the one we used to calculate network
+tmp_ps = ps_16S_fltr
+# extract OTUs and sum abund
+tmp_selected_otu = tibble("OTU"=taxa_names(tmp_ps),
+                          "taxa_sum"=taxa_sums(tmp_ps))
+# calculate rel abund in all samples
+tmp_selected_otu[,"rel_ab"] = tmp_selected_otu$taxa_sum / sum(tmp_selected_otu$taxa_sum) 
+# set in or out network
+tmp_selected_otu[,"network"] <- ifelse(tmp_selected_otu$OTU %in% tmp_nodes,
+                                          "In network","Not in network")
+
+# plot
+
+p <- ggplot(tmp_selected_otu)+
+  geom_col(aes(x=reorder(OTU,desc(rel_ab)),
+                                 y=rel_ab,
+                                 fill=network))+
+  scale_y_continuous(trans = "log1p") +
+  theme_light() +
+  theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90),
+        panel.grid.major.x = element_line(color = "white", size = 0.8))+
+  scale_fill_manual(name = "Presence in network",
+                    values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+
+p
+
+```
+
+### + rank abund curve in susp
+
+```{r}
+
+tmp_nodes = PLN_model.StARS_xp2_nodes
+
+# calculate rel abund in microcosm
+## i choose ps_fltr because it is the one we used to calculate network
+tmp_ps = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## extract data
+tmp_selected_otu <- psmelt(tmp_ps) %>%
+  dplyr::group_by(OTU) %>%
+  dplyr::summarise(rel_ab=mean(Abundance))
+## set in or out network
+tmp_selected_otu[,"network"] <- ifelse(tmp_selected_otu$OTU %in% tmp_nodes,
+                                          "In network","Not in network")
+
+# calculate rel_ab in susp
+tmp_ps = ps_16S_susp
+## remove OTUs not in most abund /!\ for susp_C: same profile but different values as lots of OTUs retrieved
+tmp_ps <- prune_taxa(taxa_names(tmp_ps)%in% tmp_selected_otu$OTU,tmp_ps)
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## extract data
+tmp_data = psmelt(tmp_ps) %>%
+  ## subset OTUs not in microcosms
+  dplyr::filter(OTU %in% tmp_selected_otu$OTU) %>% 
+  ## calculate median rel abund for each OTUs in each susp
+  dplyr::group_by(OTU,treatment) %>%
+  dplyr::summarise(mean_relab = mean(Abundance))
+## wrangle data
+tmp_data <- tmp_data %>%
+  pivot_wider(.,names_from = treatment, values_from = mean_relab)
+
+# join data
+tmp_abund <- left_join(tmp_selected_otu,tmp_data,by="OTU")
+tmp_abund[is.na(tmp_abund)] <- 0
+
+colnames(tmp_abund)
+
+```
+
+```{r extract fig}
+
+# plot
+p <- ggplot(tmp_abund)+
+  geom_col(aes(x=reorder(OTU,desc(rel_ab)),
+                                 y=T0,
+                                 fill=network))+
+  scale_y_continuous(trans = "asn") +
+  theme_light() +
+  theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90),
+        panel.grid.major.x = element_line(color = "white", size = 0.8))+
+  scale_fill_manual(name = "Presence in network",
+                    values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+
+p
+
+#```
+
+#```{r extract fig}
+library(ggedit)
+
+p[["labels"]][["title"]] <- element_blank()
+p[["labels"]][["x"]] <- element_blank()
+p[["labels"]][["y"]] <- element_blank()
+p[["theme"]][["legend.position"]] <- 'none'
+p[["theme"]][["axis.text.x"]] <- element_blank()
+p[["theme"]][["axis.text.y"]] <- element_blank()
+# export svg
+ggsave(plot = p,
+       filename = "C:/Users/srhuet/Downloads/tmp_fig.svg",
+       width = 156,height = 36,units = "mm")
+
+```
+
+### + heatmap
+```{r heatmap}
+
+# calculate rel abund in microcosm
+## i choose ps_fltr because it is the one we used to calculate network
+tmp_ps = ps_16S_fltr
+## extract OTUs and sum abund
+tmp_selected_otu = tibble("OTU"=taxa_names(tmp_ps),
+                          "taxa_sum"=taxa_sums(tmp_ps))
+## calculate rel abund in all samples
+tmp_selected_otu[,"rel_ab"] = tmp_selected_otu$taxa_sum / sum(tmp_selected_otu$taxa_sum) 
+## set in or out network
+tmp_selected_otu[,"network"] <- ifelse(tmp_selected_otu$OTU %in% tmp_nodes,
+                                          "In network","Not in network")
+
+#tmp_selected_otu[,"OTU_order"] <- order(tmp_selected_otu$OTU,desc(tmp_selected_otu$rel_ab))
+
+
+#####
+# heatmap
+
+tmp_df0 = stat_q2_otu_comparison_sum_w0
+
+# select data
+tmp_data = tmp_df0[complete.cases(tmp_df0),]
+tmp_data = tmp_data[tmp_data$g1 == "C",]
+
+# replace * by 1
+tmp_data[,"heatmap"] <- 0
+tmp_data$heatmap[tmp_data$pval_adjust <= 0.05] <- tmp_data$estimate[tmp_data$pval_adjust <= 0.05]
+
+# select data
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "signif_comp"= tmp_data$g2,
+                  "heatmap"= -tmp_data$heatmap) # inverse to have ttt-C
+
+
+# add missing otu
+tmp_OTUs = setdiff(tmp_selected_otu$OTU,tmp_data$OTU)
+tmp_ttt = c("MAC_a1d1","MAC_a1d2","MAC_a1d3","MAC_a2d1","MAC_a2d2","MAC_a2d3",
+            "PEB_a1d1","PEB_a1d2","PEB_a1d3","PEB_a2d1","PEB_a2d2","PEB_a2d3")
+tmp_df <- expand.grid(tmp_OTUs,tmp_ttt)
+tmp_df[,"heatmap"] <- 0
+colnames(tmp_df) <- colnames(tmp_data)
+tmp_data <- rbind(tmp_data,tmp_df)
+
+# set heatmap limits
+tmp_data$heatmap <- ifelse(tmp_data$heatmap < -6,-6,tmp_data$heatmap)
+tmp_data$heatmap <- ifelse(tmp_data$heatmap > 6, 6,tmp_data$heatmap)
+
+#####
+# plot
+
+tmp_plot_data = left_join(tmp_selected_otu,tmp_data)
+
+p <- ggplot(tmp_plot_data)+
+  geom_tile(aes(x=reorder(OTU,desc(rel_ab)),
+                y=signif_comp,
+                fill=heatmap))+
+  scale_fill_gradient2(low = "#FF3366",mid = "#FFFFFF",high = "#3399FF",
+                       limits= c(-6,6) , midpoint = 0)+
+  theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90))+
+  theme_light()+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+
+p
+
+
+
+```
+
+```{r combine rank abundance curve and heatmap}
+
+library(ggpubr)
+
+# rank abundance curve
+p1 <- ggplot(tmp_plot_data)+
+  geom_col(aes(x=reorder(OTU,desc(rel_ab)),
+                                 y=rel_ab,
+                                 fill=network))+
+  theme_bw() +
+  labs(y = "Relative abundance sum in microcosms")+
+  theme(axis.title.x = element_blank(),
+        axis.text.x  = element_blank(),
+        panel.grid.major.x = element_line(color = "white", size = 0.8))+
+  scale_fill_manual(name = "Presence in network",
+                    values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+
+# heatmap
+p2 <- ggplot(tmp_plot_data)+
+  geom_tile(aes(x=reorder(OTU,desc(rel_ab)),
+                y=signif_comp,
+                fill=heatmap))+
+  scale_fill_gradient2(name = "Treatment effects",
+                       low = "#FF3366",
+                       mid = "#FFFFFF",
+                       high = "#3399FF")+
+  theme_bw() +
+  labs(x = "Most abundant OTUs (decreasing order of abundance)",
+       y = "Treatment effects on OTUs relative abundances")+
+  theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+
+# combine plots
+tmp_fig <- ggarrange(p1,p2,
+                     ncol = 1,nrow = 2,
+                     align = "v")
+
+tmp_fig
+
+```
+
+### + taxo
+
+```{r}
+# i choose ps_fltr because it is the one we used to calculate network
+tmp_ps = ps_16S_fltr
+
+tmp_selected_otu = tibble("OTU"=taxa_names(tmp_ps),
+                          "taxa_sum"=taxa_sums(tmp_ps))
+tmp_selected_otu[,"rel_ab"] = tmp_selected_otu$taxa_sum / sum(tmp_selected_otu$taxa_sum)
+tmp_selected_otu[,"network"] <- ifelse(tmp_selected_otu$OTU %in% tmp_nodes,
+                                          "In network","Not in network")
+
+
+# add taxo
+tmp_plot_data <- left_join(tmp_selected_otu,tmp_taxtab[,c("OTU","taxa","Genus")])
+
+# plot
+p <- ggplot(tmp_plot_data) +
+  aes(x = reorder(OTU,desc(rel_ab)),
+      fill = taxa) +
+  geom_bar() +
+  scale_fill_manual(
+    values = c(Acidobacteria = "#6d597a",
+    Actinobacteria = "#577590",
+    Alphaproteobacteria = "#4d908e",
+    Bacteroidetes = "#42a285",
+    Chloroflexi = "#90be6d",
+    Cyanobacteria = "#c5c35e",
+    Deltaproteobacteria = "#ffd673",
+    Firmicutes = "#ffb255",
+    Gammaproteobacteria = "#f08060",
+    Gemmatimonadetes = "#ef5659",
+    Others = "#322D2F",
+    Planctomycetes = "#b32d45",
+    Verrucomicrobia = "#7d092f")
+  ) +
+  theme_bw()
+p
+
+```
+
+
+## compare network threshold
+
+```{r}
+tmp_model.StARS = PLN_model_StARS_xp2_coal
+tmp_ps = ps_16S_fltr
+
+# wrangle data
+tmp_selected_otu = tibble("OTU"=taxa_names(tmp_ps),
+                          "taxa_sum"=taxa_sums(tmp_ps))
+tmp_selected_otu[,"rel_ab"] = tmp_selected_otu$taxa_sum / sum(tmp_selected_otu$taxa_sum)
+tmp_selected_otu[,"network"] <- rep("Not in network",nrow(tmp_selected_otu))
+
+
+
+for (tmp_thrld in c(0.05,0.06,0.07,0.08,0.09)) {
+  
+  # graph adjacency matrix (value = partial correlation value)
+  tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+  # remove redundant data from the matrix
+  diag(tmp_adjacency.StARS)=0
+  tmp_adj=tmp_adjacency.StARS
+  tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+
+  # extract edges above a threshold and involved nodes
+  tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+  tmp_nodes = unique(c(rownames(tmp_adj)[tmp_edges[,1]],
+                       colnames(tmp_adj)[tmp_edges[,2]]))
+  
+  tmp_selected_otu$network <- ifelse(tmp_selected_otu$OTU %in% tmp_nodes,
+                                     paste0("In network (",tmp_thrld,")"),
+                                     tmp_selected_otu$network)
+
+}
+
+# plot
+
+p <- ggplot(tmp_selected_otu)+
+  geom_col(aes(x=reorder(OTU,desc(rel_ab)),
+                                 y=rel_ab,
+                                 fill=network))+
+  theme_bw() +
+  labs(x = "Filtered OTUs in decreasing order of abundance",
+       y = "Relative abundance in microcosms")+
+  theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90),
+        panel.grid.major.x = element_line(color = "white", size = 0.8))+
+  scale_fill_manual(name = "Presence in network",
+                    values = c("#FFE5EC","#FFC2D1","#FFB3C6","#FF8FAB","#FB6F92",
+                               "#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+
+p
+```
+
+
+# Taxonomy
+
+```{r number edges by nodes}
+
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+
+# subset pos / neg links
+#tmp_edges_otu = tmp_edges_otu[tmp_edges_otu$value >0,]
+
+# one row for each node in each edge
+tmp_edge_nb <- tibble("OTU"=c(tmp_edges_otu$source,tmp_edges_otu$target),
+                 "edge_name"=c(tmp_edges_otu$edge_name,tmp_edges_otu$edge_name))
+# edge number for each node
+tmp_edge_nb <- tmp_edge_nb %>%
+  dplyr::group_by(OTU) %>%
+  dplyr::summarise(edges_nb=n())
+# edge percent for each node
+tmp_edge_nb[,"percent"] <- tmp_edge_nb$edges_nb /(nrow(tmp_edges_otu)*2)*100
+
+# most linked OTUs
+tmp_edge_nb <- arrange(tmp_edge_nb,desc(tmp_edge_nb$edges_nb))
+tmp_edge_nb
+tmp_thrld = 5
+tmp_otus_top = tmp_edge_nb$OTU[1:tmp_thrld]
+sum(tmp_edge_nb$percent[1:tmp_thrld])
+## see OTUs abundance in susp
+ps_16S_susp_manip@otu_table[taxa_names(ps_16S_susp_manip@otu_table) %in% tmp_otus_top]
+
+```
+
+```{r nb of edge by taxa}
+# /!\ need tmp_edge_nb from {r number edges by nodes}
+
+tmp_taxa = colnames(taxtab)[11] # taxa = 9 / genus = 11
+tmp_thrld = 9 # taxa = 3 / genus = 8
+
+# add taxo
+tmp_edge_nb_taxa <- left_join(tmp_edge_nb,taxtab[,c("OTU",tmp_taxa)],by="OTU")
+colnames(tmp_edge_nb_taxa)[ncol(tmp_edge_nb_taxa)] <- "taxa"
+tmp_edge_nb_taxa
+
+# nb edge by taxa
+tmp_edge_nb_taxa = tmp_edge_nb_taxa %>% 
+  dplyr::group_by(taxa) %>% 
+  dplyr::summarise(nb_sum=sum(edges_nb),
+                   pc_sum=sum(percent))
+# most linked
+tmp_edge_nb_taxa <- arrange(tmp_edge_nb_taxa,desc(tmp_edge_nb_taxa$nb_sum))
+tmp_edge_nb_taxa
+tmp_most_linked = tmp_edge_nb_taxa$taxa[1:tmp_thrld]
+sort(tmp_most_linked)
+sum(tmp_edge_nb_taxa$pc_sum[1:tmp_thrld])
+
+# exact nb of edge for most connected => see {r most linked genus}
+## add nodes taxo
+tmp_edges_taxo <- left_join(tmp_edges_otu,taxtab[,c("OTU",tmp_taxa)],by=c("source"="OTU"))
+tmp_edges_taxo <- left_join(tmp_edges_taxo,taxtab[,c("OTU",tmp_taxa)],by=c("target"="OTU"))
+colnames(tmp_edges_taxo)[(ncol(tmp_edges_taxo)-1):ncol(tmp_edges_taxo)] <- c("source_taxa","target_taxa")
+## subset edges in tmp_most_linked
+tmp_df <- tmp_edges_taxo %>%
+  filter(source_taxa %in% tmp_most_linked & target_taxa %in% tmp_most_linked)
+nrow(tmp_df)/230*100
+
+# for genus: in which taxa
+unique(taxtab$taxa[taxtab$genus_clean %in% tmp_most_linked])
+
+```
+
+## plot nb edges by edge taxa
+
+```{r edge taxo}
+
+tmp_edges_taxo <- PLN_model.StARS_xp2_edges
+
+tmp_taxa = colnames(taxtab)
+tmp_taxa
+tmp_taxa = tmp_taxa[11] # taxa = 9 / genus = 11
+# TAXO
+# add nodes taxo
+tmp_edges_taxo <- left_join(tmp_edges_taxo,taxtab[,c("OTU",tmp_taxa)],by=c("source"="OTU"))
+tmp_edges_taxo <- left_join(tmp_edges_taxo,taxtab[,c("OTU",tmp_taxa)],by=c("target"="OTU"))
+colnames(tmp_edges_taxo)[(ncol(tmp_edges_taxo)-1):ncol(tmp_edges_taxo)] <- c("source_taxa","target_taxa")
+# concatenate taxa by edge
+tmp_edges_taxo[,"taxa"] <- paste0(apply(tmp_edges_taxo[,c("source_taxa","target_taxa")],1,sort)[1,],
+                                  " - ",
+                                  apply(tmp_edges_taxo[,c("source_taxa","target_taxa")],1,sort)[2,])
+# edge type
+tmp_edges_taxo[,"edge_type"] <- ifelse(tmp_edges_taxo$value > 0, "pos","neg")
+ # colors : "#3399FF","#FF3366"
+
+```
+
+```{r plot nb edges by edge taxo}
+
+tmp_summary <- tmp_edges_taxo %>%
+  #filter(edge_type %in% "neg") %>%
+  dplyr::group_by(taxa,edge_type) %>% 
+	dplyr::summarise(count = n())
+
+## taxa
+p <- ggplot(tmp_summary) +
+  #aes(x = reorder(edge_taxa,(count)), y = count, fill = edge_type) +
+  aes(x = taxa, y = count, fill = edge_type) +
+  geom_col() +
+  scale_fill_hue(direction = 1) +
+  coord_flip() + #scale_x_reverse() +
+  facet_wrap(vars(edge_type)) +
+  theme_bw()
+p
+
+```
+
+```{r plot mean value by edge taxo}
+p <- ggplot(tmp_edges_taxo) +
+  aes(x = value, fill = edge_type) +
+  geom_histogram(bins = 30L) +
+  scale_fill_hue(direction = 1) +
+  theme_minimal() +
+  facet_wrap(vars(edge_taxa))
+p
+```
+
+## itol text
+
+```{r}
+# /!\ need tmp_nodes
+
+tmp_ps = ps_16S_fltr
+
+# extract taxo table
+tmp_itol = tibble("OTU"=taxa_names(tmp_ps),
+                  "label"=str_remove(tmp_ps@tax_table@.Data[,"Genus"],"[D]_[0123456789]__"),
+                  "position"=rep(-1,ntaxa(tmp_ps)),
+                  "color"=rep("#999999",ntaxa(tmp_ps)),
+                  "style"=rep("bold-italic",ntaxa(tmp_ps)),
+                  "size"=rep(1,ntaxa(tmp_ps)),
+                  "rotation"=rep(0,ntaxa(tmp_ps)))
+
+tmp_itol <- tmp_itol[tmp_itol$OTU %in% tmp_nodes,]
+tmp_itol$label[tmp_itol$label == ""] <- "Unknown"
+
+# color for most important genus
+## dark gray color for most linked genus cf. chunk {nb edges by taxo}
+tmp_itol$color <- ifelse(tmp_itol$label %in% tmp_genus,
+                         "#000000",tmp_itol$color)
+## add sp. to label
+tmp_itol$label <- paste0(tmp_itol$label," sp.")
+
+
+
+
+write.csv(tmp_itol,"iToL/tmp_itol_tree_data.csv",quote = F,row.names = F)
+  
+```
+
+## plot nb edge type by model
+
+```{r edge all vs edges related to 1 or more altered properties}
+# /!\ need tmp_edges_otu
+
+tmp_edges_otu_all = PLN_model.StARS_xp2_edges
+tmp_edges_182 = tmp_edges_otu
+
+# add set
+tmp_edges_otu_all[,"set"] <- "all"
+tmp_edges_182[,"set"] <- "edges_182"
+
+# add links to df
+tmp_df <- rbind(tmp_edges_otu_all,tmp_edges_182)
+
+# edge type
+tmp_df[,"edge_type"] <- ifelse(tmp_df$value > 0, "pos","neg")
+
+p <- tmp_df %>%
+  group_by(set,edge_type) %>%
+  summarise(count=n()) %>%
+  ggplot() +
+  aes(x = set, y = count, fill = edge_type) +
+  geom_bar(stat = "identity",position = "dodge") +
+  scale_fill_hue(direction = 1) +
+  theme_bw()
+p
+p[["data"]]
+
+
+```
+
+```{r edge type by model}
+
+tmp_factor_list = c("xp2","incub","broth","density" )
+
+tmp_loop_df = tibble()
+
+# loop to calculate edges in common
+
+for (tmp_factor in tmp_factor_list) {
+
+  # rename df1
+  gdata::mv(paste0("PLN_model.StARS_",tmp_factor,"_edges"),"tmp_edges_otu")
+  tmp = tmp_edges_otu
+  gdata::mv("tmp_edges_otu",paste0("PLN_model.StARS_",tmp_factor,"_edges"))
+  
+  # add set
+  tmp[,"set"] <- tmp_factor
+  # edge type
+  tmp[,"edge_type"] <- ifelse(tmp$value > 0, "pos","neg")
+  
+  # add links to df
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+}
+
+# Sorting bars by factor ordering
+tmp_loop_df$set <- factor(tmp_loop_df$set,levels = rev(c("xp2","incub","broth","density")))
+
+# plot
+p <- ggplot(tmp_loop_df) +
+  aes(x = set, fill = edge_type) +
+  geom_bar(position = "dodge") +
+  scale_fill_hue(direction = 1) +
+  coord_flip() +
+  theme_bw()
+p
+
+```
+
+```{r edge all vs other models}
+
+# /!\ need tmp_edges_otu for 182 edges
+
+tmp_all = PLN_model.StARS_xp2_edges
+tmp_edges_182 = tmp_edges_otu
+# add set
+tmp_all[,"set"] <- "all"
+tmp_edges_182[,"set"] <- "edges_182"
+# add links to df
+tmp_df <- rbind(tmp_all,tmp_edges_182)
+# edge type
+tmp_df[,"edge_type"] <- ifelse(tmp_df$value > 0, "pos","neg")
+
+# loop for other models
+tmp_factor_list = c("incub","broth","density" )
+tmp_loop_df = tibble()
+
+for (tmp_factor in tmp_factor_list) {
+  
+  # rename df for each factor
+  gdata::mv(paste0("PLN_model.StARS_",tmp_factor,"_edges"),"tmp_set")
+  tmp_edges_factor = tmp_set
+  gdata::mv("tmp_set",paste0("PLN_model.StARS_",tmp_factor,"_edges"))
+  
+  # remove edges in models with factor
+  tmp <- tmp_all[!(tmp_all$edge_name %in% tmp_edges_factor$edge_name), ]
+  
+  # add set
+  tmp[,"set"] <- tmp_factor
+  # edge type
+  tmp[,"edge_type"] <- ifelse(tmp$value > 0, "pos","neg")
+  
+  # add links to df
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+}
+
+# add links to df
+tmp_loop_df <- rbind(tmp_loop_df,tmp_df)
+
+# Sorting bars by factor ordering
+tmp_loop_df$set <- factor(tmp_loop_df$set,levels = rev(c("all","edges_182","incub","broth","density")))
+
+# plot
+p <- ggplot(tmp_loop_df) +
+  aes(x = set, fill = edge_type) +
+  geom_bar(position = "dodge",stat = "count") +
+  stat_count(geom = "text", colour = "#333333", size = 3.5,
+             aes(label = ..count..),position=position_dodge(width = 0.9))+
+  scale_fill_hue(direction = 1) +
+  coord_flip() +
+  theme_bw()
+p
+p[["data"]]
+
+
+```
+
+
+# venn
+
+## edges
+
+```{r venn edges}
+
+# VENN
+## draw venn
+library(ggVennDiagram)
+tmp_venn <- list("all"=PLN_model.StARS_xp2_edges$edge_name,
+                 "div"=PLN_model.StARS_incub_edges$edge_name,
+                 "compo"=PLN_model.StARS_broth_edges$edge_name,
+                 "dens"=PLN_model.StARS_density_edges$edge_name)
+tmp_venn <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+tmp_venn_df <- tmp_venn[["layers"]][[1]][["data"]]
+tmp_venn_df <- tmp_venn_df[grep("all",tmp_venn_df$name),]
+
+## extract edge set
+tmp_venn_edges <- PLN_model.StARS_xp2_edges
+tmp_venn_edges[,"set"] <- ""
+for (tmp_i in unique(tmp_venn_df$name)) {
+  tmp_venn_edges[,"set"] <- ifelse(tmp_venn_edges$edge_name %in% 
+                                     unlist(tmp_venn_df$item[tmp_venn_df$name == tmp_i]),
+                                   tmp_i,tmp_venn_edges$set)
+}
+
+# edge type
+tmp_venn_edges[,"edge_type"] <- ifelse(tmp_venn_edges$value > 0, "pos","neg")
+
+```
+
+
+### edge type by venn section
+
+```{r barplot from venn}
+# /!\ need tmp_venn_edges from {r venn edges}
+
+# PLOT
+## factor ordering and colors
+tmp_venn_edges$set <- factor(tmp_venn_edges$set,
+                             levels = rev(c("all..compo..dens","all..div..dens","all..div..compo",
+                                        "all..dens","all..compo","all..div","all","all..div..compo..dens")))
+tmp_colors <- c("pos"="#FF3366","neg"="#3399FF")
+
+## plot nb link by factor
+tmp <- tmp_venn_edges %>%
+  dplyr::group_by(set,edge_type) %>%
+  dplyr::summarise(count=n())
+tmp$count <- ifelse(tmp$edge_type =="pos",tmp$count,-tmp$count)
+tmp %>%
+  ggplot() +
+  aes(x = set, y = count, fill = "#999999") +
+  geom_col() +
+  scale_fill_manual(values = tmp_colors) +
+  ylim(c(-40,40)) +
+  geom_hline(yintercept = 0,color = "#333333") +
+  theme_light() +
+  coord_flip()  
+
+## plot mean value by factor
+ggplot() +
+  aes(x= set, y = value) +
+  geom_point(data = tmp_venn_edges ,aes(colour = edge_type)) +
+  stat_summary(data = tmp_venn_edges[tmp_venn_edges$edge_type =="pos",],
+               geom = "point",fun = "median", shape = "|",size = 10, color = "#FF3366") +
+  stat_summary(data = tmp_venn_edges[tmp_venn_edges$edge_type =="neg",],
+               geom = "point",fun = "median", shape = "|",size = 10, color = "#3399FF") +
+ scale_color_manual(values = tmp_colors) +
+ theme_light() +
+ coord_flip()
+
+## plot proportion of factor by edge type
+tmp_colors <- c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd","#666666")
+tmp_venn_edges$set <- factor(tmp_venn_edges$set,
+                             levels = c("all..compo..dens","all..div..dens","all..div..compo",
+                                        "all..dens","all..compo","all..div","all","all..div..compo..dens"))
+tmp_venn_edges$edge_type <- factor(tmp_venn_edges$edge_type,
+                             levels = c("pos","neg"))
+
+tmp_venn_edges %>%
+ ggplot() +
+  aes(x = edge_type, fill = set) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = tmp_colors) +
+  #coord_flip() +
+  theme_light() 
+
+```
+
+### plot edge taxonomy from venn section
+
+```{r taxo_by_edges}
+
+# /!\ need tmp_venn_edges from {r venn edges}
+
+tmp_taxa = colnames(taxtab)
+tmp_taxa
+tmp_taxa = tmp_taxa[5] # taxa = 9 / order = 5 / genus = 11
+
+# TAXO
+## add nodes taxo
+tmp_venn_edges_taxo <- left_join(tmp_venn_edges,taxtab[,c("OTU",tmp_taxa)],by=c("source"="OTU"))
+tmp_venn_edges_taxo <- left_join(tmp_venn_edges_taxo,taxtab[,c("OTU",tmp_taxa)],by=c("target"="OTU"))
+colnames(tmp_venn_edges_taxo)[(ncol(tmp_venn_edges_taxo)-1):ncol(tmp_venn_edges_taxo)] <- c("source_taxa","target_taxa")
+# concatenate taxa by edge
+tmp_venn_edges_taxo[,"taxa"] <- paste0(apply(tmp_venn_edges_taxo[,c("source_taxa","target_taxa")],1,sort)[1,],
+                                  " - ",
+                                  apply(tmp_venn_edges_taxo[,c("source_taxa","target_taxa")],1,sort)[2,])
+
+# PLOT
+## factor ordering and colors
+tmp_venn_edges_taxo$set <- factor(tmp_venn_edges_taxo$set,
+                             levels = c("all..compo..dens","all..div..dens","all..div..compo",
+                                        "all..dens","all..compo","all..div","all","all..div..compo..dens"))
+tmp_colors <- c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd","#666666")
+tmp_venn_edges_taxo$taxa <- factor(tmp_venn_edges_taxo$taxa, levels = rev(sort(unique(tmp_venn_edges_taxo$taxa))))
+#tmp_venn_edges_taxo$edge_type <- factor(tmp_venn_edges_taxo$edge_type, levels = c("pos","neg"))
+
+## plot nb links with factor by taxa
+tmp <- tmp_venn_edges_taxo %>%
+  dplyr::group_by(taxa,set,edge_type) %>%
+  dplyr::summarise(count=n())
+tmp$count <- ifelse(tmp$edge_type =="pos",tmp$count,-tmp$count)
+tmp %>%
+  ggplot() +
+  aes(x = taxa, y = count, fill = set) +
+  geom_col() +
+  scale_fill_manual(values = tmp_colors) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") #+
+#  ylim(c(-40,40))
+#  ylim(c(-7.5,7.5))
+
+## explore count
+#sum(tmp$count[tmp$edge_type =="pos" 
+#              & tmp$taxa == "Alphaproteobacteria - Gammaproteobacteria" 
+#              & tmp$set != "all..div..compo..dens"
+#              ])-
+#  sum(tmp$count[tmp$edge_type =="neg"
+#                & tmp$taxa == "Alphaproteobacteria - Gammaproteobacteria"
+#                & tmp$set != "all..div..compo..dens"
+#                ])
+### highest number of negative links
+tmp$taxa[tmp$count == min(tmp$count)]
+tmp_edge_name = tmp_venn_edges_taxo$edge_name[tmp_venn_edges_taxo$taxa == tmp$taxa[tmp$count == min(tmp$count)]]
+tmp_OTUs = unique(c(tmp_venn_edges_taxo$source[tmp_venn_edges_taxo$edge_name %in% tmp_edge_name],
+                    tmp_venn_edges_taxo$target[tmp_venn_edges_taxo$edge_name %in% tmp_edge_name]))
+
+## plot value by taxa
+#tmp_colors <- c("pos"="#FF3366","neg"="#3399FF")
+#ggplot() +
+#  aes(x = taxa, y = value) +
+#  geom_point(data = tmp_venn_edges_taxo ,aes(colour = edge_type)) +
+#  stat_summary(data = tmp_venn_edges_taxo[tmp_venn_edges_taxo$edge_type =="pos",],
+#               geom = "point",fun = "median", shape = "|",size = 10, color = "#FF3366") +
+#  stat_summary(data = tmp_venn_edges_taxo[tmp_venn_edges_taxo$edge_type =="neg",],
+#               geom = "point",fun = "median", shape = "|",size = 10, color = "#3399FF") +
+# scale_color_manual(values = tmp_colors) +
+# theme_light() +
+# coord_flip()
+
+```
+
+```{r most linked taxa}
+
+# /!\ need tmp_venn_edges_taxo for taxa in {r taxo_by_edges}
+tmp_most_linked = most_linked_taxa
+
+# how many links for the most connected taxa?
+nrow(tmp_venn_edges_taxo[tmp_venn_edges_taxo$source_taxa %in% tmp_most_linked
+                         & tmp_venn_edges_taxo$target_taxa %in% tmp_most_linked,])
+
+# how many links connecting most connected taxa without links inside taxa?
+nrow(tmp_venn_edges_taxo[tmp_venn_edges_taxo$source_taxa %in% tmp_most_linked
+                         & tmp_venn_edges_taxo$target_taxa %in% tmp_most_linked
+                         & !(tmp_venn_edges_taxo$taxa %in% paste0(tmp_most_linked," - ",tmp_most_linked)),])
+
+# how many links between same taxa?
+nrow(tmp_venn_edges_taxo[tmp_venn_edges_taxo$taxa %in% paste0(tmp_most_linked," - ",tmp_most_linked),])
+
+# how many positive interactions inside each taxa?
+nrow(tmp_venn_edges_taxo[tmp_venn_edges_taxo$taxa %in% paste0(tmp_most_linked[3]," - ",tmp_most_linked[3])
+                         & tmp_venn_edges_taxo$edge_type == "pos",])
+
+```
+
+```{r most linked genus}
+
+# /!\ need tmp_venn_edges_taxo for genus in {r taxo_by_edges}
+tmp_most_linked = most_linked_genus
+tmp_most_linked = c("Bacillus","Solibacillus","Tumebacillus" )
+tmp_most_linked = c("Brevundimonas","Ochrobactrum","Pseudochrobactrum")
+tmp_most_linked = c("Massilia","Pseudomonas","Stenotrophomonas")
+
+
+# how many (positive/negative) links connect the most connected genus?
+nrow(tmp_venn_edges_taxo[tmp_venn_edges_taxo$source_taxa %in% tmp_most_linked
+                         & tmp_venn_edges_taxo$target_taxa %in% tmp_most_linked
+                         & tmp_venn_edges_taxo$edge_type == "neg"
+                         ,])
+
+# detail
+view(
+  tmp_venn_edges_taxo %>%
+    dplyr::filter(source_taxa %in% tmp_most_linked & target_taxa %in% tmp_most_linked) %>%
+    dplyr::filter(edge_type == "pos") %>%
+    dplyr::group_by(taxa,edge_type) %>%
+    dplyr::summarise(count=n())
+)
+
+# links between bacterial classes
+## edges between bacterial classes
+tmp1 = c("Brevundimonas","Ochrobactrum","Pseudochrobactrum")
+tmp2 = c("Massilia","Pseudomonas","Stenotrophomonas")
+tmp_edges_taxo = expand.grid(tmp1,tmp2)
+tmp_edges_taxo = rbind(tmp_edges_taxo,expand.grid(tmp2,tmp1))
+tmp_edges_taxo = paste0(tmp_edges_taxo[,1]," - ",tmp_edges_taxo[,2])
+tmp_edges_taxo = tmp_edges_taxo[which(tmp_edges_taxo %in% tmp_venn_edges_taxo$taxa)]
+## count
+nrow(tmp_venn_edges_taxo[tmp_venn_edges_taxo$taxa %in% tmp_edges_taxo
+                         & tmp_venn_edges_taxo$edge_type == "neg"
+                         ,])
+
+
+
+
+```
+
+```{r plot most linked genus}
+
+# /!\ need tmp_venn_edges_taxo for genus in {r taxo_by_edges}
+
+tmp_most_linked = most_linked_genus
+
+tmp_df_most_lkd <- tmp_venn_edges_taxo %>%
+  filter(source_taxa %in% tmp_most_linked & target_taxa %in% tmp_most_linked)
+
+# PLOT
+## factor ordering and colors
+tmp_df_most_lkd$set <- factor(tmp_df_most_lkd$set,
+                             levels = c("all..compo..dens","all..div..dens","all..div..compo",
+                                        "all..dens","all..compo","all..div","all","all..div..compo..dens"))
+tmp_colors <- c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd","#666666")
+#tmp_df_most_lkd$taxa <- factor(tmp_df_most_lkd$taxa, levels = rev(sort(unique(tmp_df_most_lkd$taxa))))
+#tmp_df_most_lkd$edge_type <- factor(tmp_df_most_lkd$edge_type, levels = c("pos","neg"))
+
+## plot nb links with factor by taxa
+tmp <- tmp_df_most_lkd %>%
+  dplyr::group_by(taxa,set,edge_type) %>%
+  dplyr::summarise(count=n())
+tmp$count <- ifelse(tmp$edge_type =="pos",tmp$count,-tmp$count)
+tmp %>%
+  ggplot() +
+  aes(x = taxa, y = count, fill = set) +
+  geom_col() +
+  scale_fill_manual(values = tmp_colors) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") +
+  ylim(c(-7,7))
+
+## plot value by taxa
+tmp_colors <- c("pos"="#FF3366","neg"="#3399FF")
+ggplot() +
+  aes(x = taxa, y = value) +
+  geom_point(data = tmp_df_most_lkd ,aes(colour = edge_type)) +
+  stat_summary(data = tmp_df_most_lkd[tmp_df_most_lkd$edge_type =="pos",],
+               geom = "point",fun = "median", shape = "|",size = 10, color = "#FF3366") +
+  stat_summary(data = tmp_df_most_lkd[tmp_df_most_lkd$edge_type =="neg",],
+               geom = "point",fun = "median", shape = "|",size = 10, color = "#3399FF") +
+ scale_color_manual(values = tmp_colors) +
+ theme_light() +
+ coord_flip()
+
+# Count
+
+
+```
+
+```{r plot abund OTUs most linked}
+
+# /!\ need tmp_venn_edges_taxo for genus in {r taxo_by_edges}
+
+# select OTUs in specific edge taxa: Bacillus - Pseudochrobactrum
+#tmp_OTUs <- tmp_venn_edges_taxo[tmp_venn_edges_taxo$taxa == "Bacillus - Pseudochrobactrum",]
+#tmp_OTUs <- unique(c(tmp_OTUs$source,tmp_OTUs$target))
+
+# melt ps
+tmp_psmelt <- ps_16S_fltr_melt %>%
+  dplyr::filter(OTU %in% tmp_OTUs)
+tmp_psmelt <- left_join(tmp_psmelt,taxtab[,c("OTU",tmp_taxa)])
+colnames(tmp_psmelt)[ncol(tmp_psmelt)] <- "taxa"
+
+# plot
+
+# treatment order & colors
+tmp_psmelt$treatment <- factor(tmp_psmelt$treatment,levels = rev(sort(unique(tmp_psmelt$treatment))))
+tmp_colors <- Color_sets$color[Color_sets$treatment %in% levels(tmp_psmelt$treatment)]
+names(tmp_colors) <- Color_sets$treatment[Color_sets$treatment %in% levels(tmp_psmelt$treatment)]
+
+ggplot(tmp_psmelt) +
+  aes(x = treatment, y = Abundance, fill = treatment) +
+  geom_boxplot(outlier.size = 0.5) +
+  geom_point(colour="#333333",size=0.5) +
+  scale_fill_manual(values = tmp_colors) +
+  scale_y_continuous(trans = "log1p") +
+  theme_light()+
+  coord_flip() +
+  facet_grid(taxa+OTU~.)
+
+```
+
+### Suspension comparison
+
+```{r number of edges by up/down in susp}
+
+# /!\ need tmp_venn_edges from {r venn edges}
+
+# susp comp
+## add OTU susp comp
+tmp_venn_edges_scomp = tmp_venn_edges
+tmp_venn_edges_scomp[,"ratio_cat.x"] <- ifelse(tmp_venn_edges_scomp$source %in%
+                                      unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "higher_in_manip"]),
+                                    "higher_in_manip", 
+                                    ifelse(tmp_venn_edges_scomp$source %in% 
+                                             unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "lower_in_manip"]),
+                                    "lower_in_manip","n.s."))
+tmp_venn_edges_scomp[,"ratio_cat.y"] <- ifelse(tmp_venn_edges_scomp$target %in%
+                                      unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "higher_in_manip"]),
+                                    "higher_in_manip", 
+                                    ifelse(tmp_venn_edges_scomp$target %in% 
+                                             unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "lower_in_manip"]),
+                                    "lower_in_manip","n.s."))
+## concatenate susp_comp by edge
+tmp_venn_edges_scomp[,"scomp"] <- paste0(apply(tmp_venn_edges_scomp[,c("ratio_cat.x","ratio_cat.y")],1,sort)[1,],
+                                  " - ",
+                                  apply(tmp_venn_edges_scomp[,c("ratio_cat.x","ratio_cat.y")],1,sort)[2,])
+
+
+# PLOT
+## factor ordering and colors
+tmp_venn_edges_scomp$set <- factor(tmp_venn_edges_scomp$set,
+                             levels = c("all..compo..dens","all..div..dens","all..div..compo",
+                                        "all..dens","all..compo","all..div","all","all..div..compo..dens"))
+tmp_colors <- c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd","#666666")
+tmp_venn_edges_scomp$scomp <- factor(tmp_venn_edges_scomp$scomp,
+                                     levels = rev(sort(unique(tmp_venn_edges_scomp$scomp))))
+#tmp_venn_edges_taxo$edge_type <- factor(tmp_venn_edges_taxo$edge_type, levels = c("pos","neg"))
+
+## plot nb links with factor by taxa
+tmp <- tmp_venn_edges_scomp %>%
+  dplyr::group_by(scomp,set,edge_type) %>%
+  dplyr::summarise(count=n())
+tmp$count <- ifelse(tmp$edge_type =="pos",tmp$count,-tmp$count)
+tmp %>%
+  ggplot() +
+  aes(x = scomp, y = count, fill = set) +
+  geom_col() +
+  scale_fill_manual(values = tmp_colors) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") +ylim(c(-60,60))
+
+
+```
+
+## nodes
+
+```{r}
+
+# VENN
+## draw venn
+library(ggVennDiagram)
+tmp_venn <- list("all"=PLN_model.StARS_xp2_nodes,
+                 "div"=PLN_model.StARS_incub_nodes,
+                 "compo"=PLN_model.StARS_broth_nodes,
+                 "dens"=PLN_model.StARS_density_nodes)
+tmp_venn <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+tmp_venn
+tmp_venn_df <- tmp_venn[["layers"]][[1]][["data"]]
+tmp_venn_df <- tmp_venn_df[grep("all",tmp_venn_df$name),]
+
+## extract edge set
+tmp_venn_nodes <- tibble("OTU"= PLN_model.StARS_xp2_nodes,
+                         "set" = "")
+for (tmp_i in unique(tmp_venn_df$name)) {
+  tmp_venn_nodes[,"set"] <- ifelse(tmp_venn_nodes$OTU %in% 
+                                     unlist(tmp_venn_df$item[tmp_venn_df$name == tmp_i]),
+                                   tmp_i,tmp_venn_nodes$set)
+}
+
+
+```
+
+How many links by OTUs?
+
+```{r barplot nb links by OTUs in each venn section}
+
+# /!\ need tmp_edge_nb from {r number edges by nodes}
+
+tmp_df <- left_join(tmp_venn_nodes,tmp_edge_nb,by="OTU")
+
+
+library(ggplot2)
+
+ggplot(tmp_df) +
+ aes(x = OTU, y = percent) +
+ geom_col(fill = "#112446") +
+ theme_minimal() +
+ facet_wrap(vars(set))
+
+
+```
+
+
+
+
+# specific edges
+
+## plots
+
+```{r plot nodes most linked genus}
+
+tmp_OTU = unique(c(tmp_edges_genus_w.loop$source,tmp_edges_genus_w.loop$target))
+#tmp_OTU = c("OTU-45","OTU-773")
+
+tmp_ps = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% tmp_OTU,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+
+
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance))+
+  geom_boxplot()+
+  geom_jitter(color="red", size=0.5, alpha=0.9) +
+  labs(title = "Node OTUs",y="Relative abundance (among all OTUs)",x="Treatments")+
+  scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  theme(axis.text.x  = element_text(angle = 90))+
+  facet_wrap(Class+Genus+OTU~.,scales = "free",ncol=8)
+
+p
+
+```
+
+## itol connection by genus
+
+```{r itol connections}
+
+for (i in 1:length(tmp_genus)) {
+  
+  tmp_OTUs = unique(c(tmp_edges_genus_w.loop$source[tmp_edges_genus_w.loop$source_genus ==
+                                                      tmp_genus[i]],
+               tmp_edges_genus_w.loop$target[tmp_edges_genus_w.loop$target_genus == tmp_genus[i]]))
+  
+  tmp_itol = tmp_edges_otu[tmp_edges_otu$source %in% tmp_OTUs |
+                             tmp_edges_otu$target %in% tmp_OTUs,]
+  
+  tmp_itol[,"color"] <- ifelse(tmp_itol$value > 0, "#3399FF","#FF3366")
+  
+  tmp_itol[,"style"] <- rep("normal",nrow(tmp_itol))
+  
+  tmp_itol$value <- abs(tmp_itol$value)
+  
+  # extrcat data
+  write.csv(tmp_itol,paste0("iTOL/tmp_itol_tree_data_",tmp_genus[i],".csv"),row.names = F,quote = F)
+  
+}
+
+
+```
+
+## itol text
+
+```{r}
+
+tmp_nodes = PLN_model.StARS_xp2_nodes
+
+# extract taxo table
+tmp_itol = tibble("OTU"=taxtab$OTU,
+                  "label"=taxtab$genus_clean,
+                  "position"=-1,
+                  "color"="#999999",
+                  "style"="bold-italic",
+                  "size"=1,
+                  "rotation"=0)
+
+tmp_itol <- tmp_itol[tmp_itol$OTU %in% tmp_nodes,]
+
+# remove class for unknown sp.
+tmp_itol$label[grep("Unknown",tmp_itol$label)] <- "Unknown"
+
+# color for most important genus
+## dark gray color for most linked genus cf. chunk {nb edges by taxo}
+tmp_itol$color <- ifelse(tmp_itol$label %in% most_linked_genus,
+                         "#000000",tmp_itol$color)
+## add sp. to label
+tmp_itol$label <- paste0(tmp_itol$label," sp.")
+
+# extract data
+write.csv(tmp_itol,"iToL/tmp_itol_tree_data.csv",quote = F,row.names = F)
+  
+```
+
+# specific nodes
+
+
+```{r nodes from edges}
+
+# choose taxa
+tmp_taxa1 = "Pseudochrobactrum"
+tmp_taxa2 = "Bacillus"
+
+tmp_otus1 = taxtab$OTU[taxtab$genus_clean == tmp_taxa1]
+tmp_otus2= taxtab$OTU[taxtab$genus_clean == tmp_taxa2]
+
+# select edges connecting chosen taxa
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+tmp_data = tmp_edges_otu[tmp_edges_otu$source %in% c(tmp_otus1,tmp_otus2) &
+                             tmp_edges_otu$target %in% c(tmp_otus1,tmp_otus2),]
+# remove edges between same taxa
+tmp_data <- tmp_data %>%
+  subset(.,!(source %in% tmp_otus1 & target %in% tmp_otus1)) %>%
+  subset(.,!(source %in% tmp_otus2 & target %in% tmp_otus2))
+
+# add taxo
+tmp_data[,"source_taxo"] <- ifelse(tmp_data$source %in% tmp_otus1,tmp_taxa1,tmp_taxa2)
+tmp_data[,"target_taxo"] <- ifelse(tmp_data$target %in% tmp_otus1,tmp_taxa1,tmp_taxa2)
+
+# plot relative abundance in treatment
+## etract OTUs
+tmp_OTUs = unique(c(tmp_data$source,tmp_data$target))
+## go to chunk {r plot several OTU abundance}
+
+
+
+# sums by class
+tmp_abund <- tmp_abund %>%
+  dplyr::group_by(Sample,Class) %>%
+  #dplyr::summarise(sum_abund = sum(Abundance)) %>%
+  dplyr::summarise(sum_relab = sum(relab))
+
+
+tmp_abund <- pivot_wider(tmp_abund[,c("sum_relab","Sample","Class")],
+                         id_cols = "Sample",names_from = "Class",
+                         #values_from = "sum_abund")
+                         values_from = "sum_relab")
+
+# plot abund points
+p <- ggplot(tmp_abund) +
+  aes(x = D_2__Alphaproteobacteria, y = D_2__Bacilli) +
+  geom_point(shape = "circle", size = 1.5, colour = "#112446") +
+  theme_bw()+
+  geom_smooth(color= "#FF3366")
+p
+
+# corr
+cor(tmp_abund$D_2__Alphaproteobacteria,tmp_abund$D_2__Bacilli)
+
+
+
+
+```
+
+## OTU-45 - Firmi
+```{r edges and nodes}
+
+tmp_OTU = "OTU-45"
+
+tmp_data = tmp_edges_otu[tmp_edges_otu$source == tmp_OTU |
+                             tmp_edges_otu$target == tmp_OTU,]
+
+tmp_otus_aprot = taxtab$OTU[taxtab$Class == "Alphaproteobacteria"]
+tmp_otus_firm = taxtab$OTU[taxtab$Phylum == "Firmicutes"]
+
+tmp_data <- tmp_data[tmp_data$source %in% c(tmp_otus_aprot,tmp_otus_firm) &
+                            tmp_data$target %in% c(tmp_otus_aprot,tmp_otus_firm),]
+tmp_data <- tmp_data[tmp_data$value < 0,]
+
+#{r nodes}
+tmp_nodes <- unique(c(tmp_data$source,tmp_data$target))
+tmp_nodes_aprot = intersect(tmp_otus_aprot,tmp_nodes)
+tmp_nodes_firm = intersect(tmp_otus_firm,tmp_nodes)
+
+```
+
+```{r box plot data}
+
+tmp_ps = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% tmp_nodes,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+# treatment order & colors
+tmp_data <- left_join(tmp_data,Colors_treatments,by = "treatment")
+tmp_colors = Colors_treatments$color[Colors_treatments$treatment %in% unique(tmp_data$treatment)]
+
+# box plot
+p <- ggplot(tmp_data,aes(x=reorder(treatment,order),
+                         y=Abundance,
+                         fill=treatment))+
+  geom_boxplot(outlier.size = 0,outlier.colour = "white", size =0.1)+
+  #geom_bar(stat = "identity")+
+  geom_jitter(color="#333333", size=0.1,width = 0.1) +
+  labs(title = "Node OTUs",y="Relative abundance (among filtered OTUs)",x="Treatments")+
+#  labs(title = tmp_OTUs,y="Raw abundance (log10 scale)",x="Treatments")+
+  scale_y_log10()+
+  scale_fill_manual(values = tmp_colors)+
+  facet_grid(.~Class+OTU)+
+  theme_bw()+
+  theme(title = element_text(face="bold", size=10),
+        axis.title.x = element_text(face="bold", size=10), 
+        axis.text.x  = element_text(vjust=0.5, size=8,angle = 45),
+        axis.title.y = element_text(face="bold", size=10), 
+        axis.text.y  = element_text(vjust=0.5, size=8),
+        strip.text = element_text(face="bold", size=8),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))
+
+p
+
+# box plot / treatment
+ggplot(tmp_data) +
+  aes(x = treatment, y = Abundance, fill = Class) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  theme_minimal() +
+  facet_wrap(vars(treatment), scales = "free_x", nrow = 1L)
+
+
+```
+
+```{r dot plot}
+
+tmp_ps = ps_16S_fltr
+
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% c(tmp_nodes_aprot,tmp_nodes_firm),tmp_ps)
+
+tmp_plot_data = psmelt(tmp_ps)
+tmp_plot_data <- tmp_plot_data[,c("OTU","Abundance","sample")]
+tmp_plot_data[,"taxo"] <- ifelse(tmp_plot_data$OTU %in% tmp_nodes_aprot,
+                                 "aprot","firmi")
+
+tmp_plot_data <- tmp_plot_data %>% 
+  dplyr::group_by(taxo,sample) %>%
+  dplyr::summarise(sum_abund = mean(Abundance)) %>%
+  pivot_wider(names_from = taxo,values_from = sum_abund)
+
+
+# plot
+
+p <- ggplot(tmp_plot_data) +
+  aes(x = aprot, y = firmi) +
+  geom_point(shape = "circle", size = 1.5, colour = "#333333") +
+  stat_smooth(method = "lm",color = "#333333") +
+  theme_bw()
+
+p
+
+# linear regression
+tmp_lm = lm(tmp_plot_data$firmi ~ tmp_plot_data$aprot, na.action = na.omit )
+summary(tmp_lm)
+# anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+
+```
+
+
+```{r OTUs behavior in ttt = q2}
+
+tmp_OTUs = c(45,2147,715,16154,4225,52,56220)
+tmp_OTUs <- paste0("OTU-",tmp_OTUs)
+
+# select comparison with control for those OTUs
+# select data
+tmp_comp = stat_q2_otu_comparison_sum
+tmp_comp = tmp_comp[complete.cases(tmp_comp),] # remove OTUs for which model didnt work
+tmp_comp = tmp_comp[tmp_comp$g1 == "C",]
+tmp_comp$pval_adjust <- tmp_comp$p.value *258 *12
+tmp_comp <- tmp_comp[tmp_comp$OTU %in% tmp_OTUs,]
+
+# heatmap
+
+## wrangle data
+tmp_heatmap = left_join(tmp_comp,taxtab[,c("OTU","Class")])
+## treatment order
+tmp_order = tibble("g2"=Colors_treatments$treatment,"order"=Colors_treatments$order)
+tmp_heatmap <- left_join(tmp_heatmap,tmp_order,by = "g2")
+## replace estimates non signif
+tmp_heatmap$estimate[tmp_heatmap$pval_adjust >= 0.05] <- 0
+## inverse estimates to have ttt-C
+tmp_heatmap$estimate <- - tmp_heatmap$estimate
+## add comparison C-C for vizualisation
+tmp_df <- tmp_heatmap[tmp_heatmap$g2 == "MAC_a1d1",]
+tmp_df$estimate <- 0
+tmp_df$g2 <- "C"
+tmp_df$order <- 1
+tmp_heatmap <- rbind(tmp_heatmap,tmp_df)
+
+## plot
+p <- ggplot(tmp_heatmap, aes(x=reorder(g2,order),
+                      y=g1,
+                      fill= estimate)) +
+  geom_tile() +
+  scale_fill_gradient2(low="#FF3366",mid = "#ffffff",high="#3399FF",
+                       limits = c(-6,6)) +
+  theme_light()+
+  facet_grid(.~Class+OTU)
+p
+
+```
+
+
+```{r plots}
+
+
+#####
+# plot relative abundance in treatment
+## choose ps object
+tmp_ps = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% c(tmp_OTU,tmp_OTUs),tmp_ps)
+## wrangle ps object
+tmp_data = psmelt(tmp_ps)
+## plot
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance))+
+  geom_boxplot()+
+  geom_jitter(color="red", size=0.5, alpha=0.9) +
+  labs(title = tmp_OTU,y="Relative abundance among filtered OTUs (log scale)",x="Treatments")+
+  scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  geom_hline(yintercept = 0)+
+  facet_wrap(vars(OTU))+
+  theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90))
+p
+
+#####
+# plot significant variables
+# select otu
+tmp_df= stat_q1_otu[stat_q1_otu$OTU %in% c(tmp_OTU,tmp_OTUs),]
+
+## select data
+tmp_data = tmp_df[complete.cases(tmp_df),]
+tmp_data$`F value`[tmp_data$pval_adjust > 0.05] <- 0
+tmp_data = tmp_data[tmp_data$pval_adjust <= 0.05,]
+
+## select colors
+tmp_colors <- tibble("var"=unique(tmp_data$var),
+                    "color"=Color_sets$color[Color_sets$set=="7p"],
+                    "color_order"=Color_sets$order[Color_sets$set=="7p"])
+## set OTU order
+tmp_order = tibble("OTU"=sort(unique(tmp_data$OTU)),
+                   "y.order"=c(1:length(unique(tmp_data$OTU))))
+## add color and order 
+tmp_data <- left_join(tmp_data,tmp_colors, by = "var")
+tmp_data <- left_join(tmp_data,tmp_order,by="OTU")
+## plot
+p <- ggplot(tmp_data, aes(x=reorder(OTU,y.order),
+                          y=`F value`,
+                          fill= reorder(var,color_order)))+
+  geom_bar(stat = "identity", position = "dodge")+
+  theme_classic()+
+  scale_fill_manual(name = "Variables",
+                    values = tmp_colors$color)+ 
+  labs(x="OTU", y= paste0("\n","F value"),
+       title = "Variable F-values by OTU", color = "#333333")+
+  #scale_y_continuous(expand = c(0,0))+
+  #scale_y_log10()+ # i cant make a proper bar graph with a scale log ...
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  #coord_flip()+
+  coord_trans(ytrans="log10")
+
+
+p
+
+```
+
+## alpha-prot - firmicutes
+
+```{r edges & nodes}
+
+tmp_otus_aprot = taxtab$OTU[taxtab$Class == "Alphaproteobacteria"]
+tmp_otus_firm = taxtab$OTU[taxtab$Phylum == "Firmicutes"]
+
+tmp_data <- tmp_edges_otu[tmp_edges_otu$source %in% c(tmp_otus_aprot,tmp_otus_firm) &
+                            tmp_edges_otu$target %in% c(tmp_otus_aprot,tmp_otus_firm),]
+
+tmp_data <- tmp_data[tmp_data$value <0,]
+
+
+#{r nodes}
+
+tmp_nodes <- unique(c(tmp_data$source,tmp_data$target))
+
+tmp_nodes_aprot = intersect(tmp_otus_aprot,tmp_nodes)
+tmp_nodes_firm = intersect(tmp_otus_firm,tmp_nodes)
+
+```
+
+```{r plot - dots + curve}
+
+tmp_ps = ps_16S_fltr
+
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% c(tmp_nodes_aprot,tmp_nodes_firm),tmp_ps)
+
+tmp_plot_data = psmelt(tmp_ps)
+tmp_plot_data <- tmp_plot_data[,c("OTU","Abundance","sample")]
+tmp_plot_data[,"taxo"] <- ifelse(tmp_plot_data$OTU %in% tmp_nodes_aprot,
+                                 "aprot","firmi")
+
+tmp_plot_data <- tmp_plot_data %>% 
+  dplyr::group_by(taxo,sample) %>%
+  dplyr::summarise(sum_abund = sum(Abundance)) %>%
+  pivot_wider(names_from = taxo,values_from = sum_abund)
+
+
+# plot
+
+p <- ggplot(tmp_plot_data) +
+  aes(x = aprot, y = firmi) +
+  geom_point(shape = "circle", size = 1.5, colour = "#112446") +
+  geom_smooth(method = "glm") +
+  theme_bw()
+
+p
+
+# linear regression
+tmp_lm = lm(tmp_plot_data$firmi ~ tmp_plot_data$aprot, na.action = na.omit )
+summary(tmp_lm)
+# anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+
+```
+
+
+
+
+

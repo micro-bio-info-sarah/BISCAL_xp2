@@ -1,0 +1,212 @@
+---
+title: "4_community_composition"
+author: "Sarah HUET"
+date: "2021 M03 10"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyr)
+library(tibble)
+library(stringr)
+library(dplyr)
+library(phyloseq)
+library(ggplot2)
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+
+
+# most abundant taxa
+
+```{r Determine 12 most abundant class}
+
+tmp_ps = ps_16S_fltr
+
+# extract taxo table
+tmp_taxtab = tibble("OTU"=taxa_names(tmp_ps),
+                    "Kingdom"=str_remove(tmp_ps@tax_table@.Data[,"Kingdom"],"[D]_[0123456789]__"),
+                    "Phylum"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "class"=str_remove(tmp_ps@tax_table@.Data[,"Class"],"[D]_[0123456789]__"),
+                    "Order"=str_remove(tmp_ps@tax_table@.Data[,"Order"],"[D]_[0123456789]__"),
+                    "Family"=str_remove(tmp_ps@tax_table@.Data[,"Family"],"[D]_[0123456789]__"),
+                    "Genus"=str_remove(tmp_ps@tax_table@.Data[,"Genus"],"[D]_[0123456789]__"),
+                    "Species"=str_remove(tmp_ps@tax_table@.Data[,"Species"],"[D]_[0123456789]__"),
+                    "taxa"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "Abundance" = as.numeric(taxa_sums(tmp_ps)))
+
+# TAXA
+## CLEAN
+### change unclassified by "Unknown"
+tmp_taxtab[is.na(tmp_taxtab)] <- "Unknown"
+### put class for proteo
+tmp_taxtab$taxa[tmp_taxtab$Phylum == "Proteobacteria"] <- tmp_taxtab$class[tmp_taxtab$Phylum == "Proteobacteria"]
+## MOST ABUND
+tmp_most_abund = tmp_taxtab %>% 
+  dplyr::group_by(taxa) %>% 
+  dplyr::summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$taxa[order(tmp_most_abund$sum, decreasing = TRUE)[1:12]]
+most_abund_taxa = sort(tmp_most_abund)
+###change rare taxa by "Others"
+tmp_taxtab$taxa[!(tmp_taxtab$taxa %in% c(tmp_most_abund,"Unknown"))] <- "Others"
+
+
+# ORDER
+## CLEAN
+tmp_pattern <- c("uncultured","Ambiguous","\\d+")
+### get orders from patterns
+tmp_raw_taxa <- tmp_taxtab$Order[grep(paste(tmp_pattern,collapse = "|"),tmp_taxtab$Order)]
+### set new var
+tmp_taxtab[,"order_clean"] <- tmp_taxtab$Order
+tmp_taxtab$order_clean <- ifelse(tmp_taxtab$order_clean %in% c("",tmp_raw_taxa),
+                                     paste0("Unknown ",tmp_taxtab$taxa),
+                                     tmp_taxtab$order_clean)
+## MOST ABUND
+tmp_most_abund = tmp_taxtab %>% 
+  dplyr::group_by(order_clean) %>% 
+  dplyr::summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$order_clean[order(tmp_most_abund$sum, decreasing = TRUE)[1:12]]
+most_abund_order = sort(tmp_most_abund)
+most_abund_order
+
+
+# GENUS
+## CLEAN
+tmp_raw_taxa <- tmp_taxtab$Genus[grep(paste(tmp_pattern,collapse = "|"),tmp_taxtab$Genus)]
+tmp_taxtab[,"genus_clean"] <- tmp_taxtab$Genus
+tmp_taxtab$genus_clean <- ifelse(tmp_taxtab$genus_clean %in% c("",tmp_raw_taxa),
+                                     paste0("Unknown ",tmp_taxtab$taxa),
+                                     tmp_taxtab$genus_clean)
+tmp_taxtab$genus_clean <- ifelse(tmp_taxtab$genus_clean == 
+                                   "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium",
+                                 "Rhizobium",
+                                 tmp_taxtab$genus_clean)
+## MOST ABUND
+tmp_most_abund = tmp_taxtab %>% 
+  dplyr::group_by(genus_clean) %>% 
+  dplyr::summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$genus_clean[order(tmp_most_abund$sum, decreasing = TRUE)[1:12]]
+most_abund_genus = sort(tmp_most_abund)
+most_abund_genus
+
+# COLOR
+## select taxonomic level
+tmp_most_abund = most_abund_taxa
+## select taxa colors and order 
+tmp_colors <- Color_sets[Color_sets$set == "taxo",c("color","order")]
+colnames(tmp_colors)[2] <- "color_order" 
+tmp_colors[,"taxa"] <- c(tmp_most_abund[order(tmp_most_abund)],"Others","Unknown")
+## add taxa color and order
+tmp_taxtab <- left_join(tmp_taxtab,tmp_colors, by = "taxa")
+
+#taxtab = tmp_taxtab
+#write.csv(tmp_taxtab,file = "cytoscape_PLN_metadata_taxo.csv",quote = F,row.names = F)
+
+```
+
+# plot community composition
+
+```{r data}
+
+tmp_plot_name = "commu_compo_all"
+tmp_ps = ps_16S
+
+# wrangle data
+## extract data from ps
+tmp_data = psmelt(tmp_ps)
+## change unclassified by "Unknown"
+tmp_data[is.na(tmp_data)] <- "Unknown"
+## set class for proteo and phylum for other
+tmp_data[,"taxa"] <- tmp_data$Phylum
+tmp_data$taxa[tmp_data$Phylum == "D_1__Proteobacteria"] <- tmp_data$Class[tmp_data$Phylum == "D_1__Proteobacteria"]
+## rename taxa
+tmp_data$taxa <- str_remove(tmp_data$taxa,"[D]_[123456789]__")
+## change rare taxa by "Others"
+tmp_data$taxa[!(tmp_data$taxa %in% c(most_abund_taxa,"Unknown"))] <- "Others"
+
+# summarise by treatment and taxonomy
+tmp_plot_data <- tmp_data   %>%
+  dplyr::group_by(treatment,taxa)   %>%
+  dplyr::summarise( sum_abund = sum(Abundance))
+
+# colors and order
+## select taxa colors and order
+tmp_color <- Color_sets[Color_sets$set == "taxo",3:4]
+tmp_color[,"taxa"] <- c(most_abund_taxa,"Others","Unknown")
+## add taxa color and order 
+tmp_plot_data <- left_join(tmp_plot_data,tmp_color, by = "taxa")
+colnames(tmp_plot_data)[length(tmp_plot_data)] <- "color_order"
+## add treatment order
+tmp_plot_data <- left_join(tmp_plot_data,Color_sets[Color_sets$set == "treatments",
+                                                    c("treatment","order")], by = "treatment")
+
+```
+
+```{r plot}
+
+
+# plot
+p <- ggplot(tmp_plot_data, aes(x=reorder(treatment,desc(order)), y=sum_abund,
+                         fill= reorder(taxa,color_order)))+
+  geom_bar(stat = "identity", position = "fill")+
+  theme_classic()+
+  scale_fill_manual(name = "taxa",
+                    values = levels(reorder(tmp_plot_data$color,tmp_plot_data$color_order)))+ 
+  labs(x="Treatment", y= "Relative Abundance",
+       title = tmp_plot_name, color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+
+#fig_div[[tmp_plot_name]] <- p
+
+```
+
+```{r export chart}
+
+ggsave(plot = p,
+       filename = "tmp_fig.svg",
+       width = 190,height = 135,units = "mm")
+
+library(officer)
+library(rvg)
+tmp_editable_graph <- dml(ggobj = p)
+doc <- read_pptx()
+doc <- add_slide(doc)
+doc <- ph_with(x = doc, tmp_editable_graph,
+               location = ph_location_type(type = "body") )
+print(doc, target = "tmp_fig.pptx")
+
+
+```
+
+```{r percent by taxa}
+
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2")
+
+# ne marche pas
+tmp_data <- tmp_plot_data[tmp_plot_data$treatment %in% tmp_ttt,c("taxa","sum_abund")] %>%
+  group_by(taxa,sum=sum(sum_abund))
+  
+
+
+```
+
+
+

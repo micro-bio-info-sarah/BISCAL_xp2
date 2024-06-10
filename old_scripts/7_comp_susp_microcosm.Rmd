@@ -1,0 +1,1179 @@
+---
+title: "7_comp_susp_microcosm"
+author: "Sarah HUET"
+date: '2023-03-27'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(PLNmodels)
+library(tibble)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggplot2)
+
+library(gdata)
+
+# load data
+load("E:/Research/Thesis/EMFEED/BISCAL_xp2_coal/R_xp2_coal/.RData")
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# all suspensions
+
+I want to compare OTU's behavior in suspenions and microcosm
+
+```{r OTUs in susp}
+
+# OTUs in susp
+tmp_ps = ps_16S_susp
+## remove T0 samples
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment != "T0",tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) >0,tmp_ps)
+## melt ps
+tmp_ps_melt = psmelt(tmp_ps)
+
+# suspension names
+tmp_name_susp = c("all","susp_C","susp_manip")
+
+# list of OTUs
+tmp_OTUs_susp = list()
+## OTUs all susp
+tmp_OTUs_susp[[tmp_name_susp[1]]] = taxa_names(tmp_ps)
+## OTUs in susp_C
+tmp_OTUs_susp[[tmp_name_susp[2]]] = unique(tmp_ps_melt$OTU[tmp_ps_melt$treatment == "susp_C" 
+                                         & tmp_ps_melt$Abundance > 0])
+## OTUs in manipulated suspensions
+tmp_OTUs_susp[[tmp_name_susp[3]]] = unique(tmp_ps_melt$OTU[tmp_ps_melt$treatment != "susp_C"
+                                             & tmp_ps_melt$Abundance > 0])
+
+```
+
+Which OTUs in suspensions are also detected in microcosms?
+
+```{r OTUs both in susp and microcosms}
+
+tmp_OTUs_microcosms = taxa_names(ps_16S_micro)
+tmp_OTUs_microcosms_fltr = taxa_names(ps_16S_fltr)
+
+for (tmp_i in tmp_name_susp) {
+  print(tmp_i)
+  print(length(intersect(tmp_OTUs_susp[[tmp_i]],tmp_OTUs_microcosms)))
+  print(length(intersect(tmp_OTUs_susp[[tmp_i]],tmp_OTUs_microcosms_fltr)))
+
+}
+
+# which OTUs both in susp_manip & most abund but not in susp_C
+setdiff(intersect(tmp_OTUs_susp$susp_manip,tmp_OTUs_microcosms_fltr),tmp_OTUs_susp$susp_C)
+
+```
+
+How are OTUs detected in manipulated suspensions affected by coalescence?
+
+```{r effect of coal}
+
+# GLMM results for OTUs in susp
+tmp_data = list()
+
+for (tmp_i in tmp_name_susp) {
+  tmp_data[[tmp_i]] = stat_q2_otu_comparison_sum_w0 %>%
+    dplyr::filter(OTU %in% tmp_OTUs_susp[[tmp_i]] & pval_adjust <= 0.05)
+  
+  ## nb OTUs impacted
+  print(length(unique(tmp_data[[tmp_i]]$OTU)))
+  
+  ## nb OTUs positively impacted /!\ estimate < 0
+  print(length(unique(tmp_data[[tmp_i]]$OTU[tmp_data[[tmp_i]]$estimate <0])))
+  ## nb OTUs negatively impacted /!\ estimate > 0
+  print(length(unique(tmp_data[[tmp_i]]$OTU[tmp_data[[tmp_i]]$estimate >0])))
+  
+}
+
+
+```
+
+How community properties influence OTUs abundance?
+
+```{r effect of properties}
+
+# GLMM results for OTUs in susp
+tmp_data = list()
+
+for (tmp_i in tmp_name_susp) {
+  print(tmp_i)
+  tmp_data[[tmp_i]] = stat_q1_otu %>%
+    dplyr::filter(OTU %in% tmp_OTUs_susp[[tmp_i]] & pval_adjust <= 0.05)
+  
+  ## nb OTUs affected by properties
+  print(length(unique(tmp_data[[tmp_i]]$OTU)))
+  
+  for (tmp_j in unique(tmp_data[[tmp_i]]$var)) {
+    print(tmp_j)
+    ## nb OTUs affected by var
+    print(length(unique(tmp_data[[tmp_i]]$OTU[tmp_data[[tmp_i]]$var == tmp_j])))
+  }
+  
+}
+
+```
+
+How many OTUs in susp are connected in network?
+
+```{r}
+
+# PLN results for OTUs in susp
+tmp_data = list()
+
+for (tmp_i in tmp_name_susp) {
+  print(tmp_i)
+  tmp_data[[tmp_i]] = PLN_model.StARS_xp2_edges %>%
+    dplyr::filter(source %in% tmp_OTUs_susp[[tmp_i]] | 
+                    target %in% tmp_OTUs_susp[[tmp_i]])
+  
+  ## nb OTUs connected in network
+  print(table(tmp_OTUs_susp[[tmp_i]] %in% c(PLN_model.StARS_xp2_edges$source,PLN_model.StARS_xp2_edges$target)))
+
+  
+}
+```
+
+# Most abund OTUs in  susp
+
+I will calculate the relative abundance among the 258 most abundant OTUs as I will only display and talk about these ones. If I filter the OTUs after calculating the relative abundance, the sum of the rel ab is <1 in each suspension.
+
+## rel ab in susp
+
+```{r LRT a la main}
+
+tmp_ps0 = ps_16S_susp
+## remove T0 samples
+tmp_ps0 <- prune_samples(tmp_ps0@sam_data$treatment != "T0",tmp_ps0)
+tmp_ps0 <- prune_taxa(taxa_sums(tmp_ps0) >0,tmp_ps0)
+
+## subset taxa
+tmp_ps0 = prune_taxa(taxa_names(tmp_ps0) %in% taxa_names(ps_16S_fltr),tmp_ps0)
+
+# loop
+tmp_loop_df = tibble()
+tmp_name_susp = c("MAC_a1","MAC_a2","PEB_a1","PEB_a2")
+for (tmp_i in taxa_names(tmp_ps0)) {
+  tmp_OTU = tmp_i
+  for (tmp_j in paste0("susp_",tmp_name_susp)) {
+    tmp_ttt1 = "susp_C"
+    tmp_ttt2 = tmp_j
+    
+    # subset samples
+    tmp_ps = prune_samples(tmp_ps0@sam_data$treatment %in% c(tmp_ttt1,tmp_ttt2),tmp_ps0)
+    
+    #  treatment
+    tmp_ttt = unlist(tmp_ps@sam_data$treatment)
+    names(tmp_ttt) <- unlist(tmp_ps@sam_data$sample)
+
+    # response variable
+    tmp_y = unlist(tmp_ps@otu_table@.Data[tmp_OTU,])
+    tmp_relab = tmp_y / sample_sums(tmp_ps)
+
+    # a la main
+    tmp_logLik1 <- sum(dpois(tmp_y[tmp_ttt==tmp_ttt1],
+                            mean(tmp_y[tmp_ttt==tmp_ttt1]), log=TRUE)) +
+     sum(dpois(tmp_y[tmp_ttt==tmp_ttt2],
+               mean(tmp_y[tmp_ttt==tmp_ttt2]), log=TRUE))
+    tmp_logLik0 <- sum(dpois(tmp_y, mean(tmp_y), log=TRUE)) 
+    tmp_LRT <- 2*(tmp_logLik1 - tmp_logLik0)
+    tmp_LRT
+    tmp_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE)
+
+    
+    tmp <- tibble("OTU"=tmp_OTU,
+                  "susp_C_relab"=mean(tmp_relab[tmp_ttt==tmp_ttt1]),
+                  "manip_susp"=tmp_j,
+                  "manip_susp_relab"=mean(tmp_relab[tmp_ttt==tmp_ttt2]),
+                  "LRT"=tmp_LRT,
+                  "pchisq"=tmp_pchisq,
+                  "p_adjust"=tmp_pchisq*length(taxa_names(tmp_ps0))*4)
+    tmp[,"ratio"] <- ifelse(tmp$manip_susp_relab == 0,0,
+                            tmp$manip_susp_relab/(tmp$susp_C_relab + tmp$manip_susp_relab))
+    # add a ratio threshold to consider higher or lower
+    tmp[,"ratio_cat"] <- ifelse(tmp$p_adjust > 0.05,"n.s.",
+                                ifelse(tmp$ratio <=0.4,"lower_in_manip",
+                                       ifelse(tmp$ratio >=0.6,"higher_in_manip",
+                                              "n.s.")))
+
+    tmp_loop_df <- rbind(tmp_loop_df,tmp)
+
+  }
+  
+}
+
+#stat_susp_OTU = tmp_loop_df
+
+# OTUs in manipulated susp and most abund in microcosms
+tmp_OTUs_56 = intersect(taxa_names(ps_16S_susp_manip),taxa_names(ps_16S_fltr))
+# which OTU higher in manip susp
+tmp_OTUs_higher <- unique(tmp_loop_df$OTU[tmp_loop_df$ratio_cat =="higher_in_manip"])
+
+
+
+```
+
+
+```{r plot rel ab points}
+
+# PLOT REL AB IN SUSP
+tmp_name_susp = c("MAC_a1","MAC_a2","PEB_a1","PEB_a2")
+
+for (tmp_i in paste0("susp_",tmp_name_susp)) {
+  print(
+    stat_susp_OTU %>%
+      filter(manip_susp %in% tmp_i) %>%
+      ggplot() +
+      aes(x = susp_C_relab, y = manip_susp_relab, fill = ratio_cat,size=abs(ratio-0.5)) +
+      geom_point(shape = "circle filled") +
+      geom_abline(intercept = 0) +
+      geom_hline(yintercept = 0) +
+      geom_vline(xintercept = 0) +
+      scale_x_continuous(trans = "asn") +
+      scale_y_continuous(trans = "asn") +
+      scale_fill_manual(values = c("#FF3366","#3399FF","#cccccc")) +
+      scale_size_continuous(limits = c(0, 0.5)) +
+      theme_light() +
+      labs(title = tmp_i)
+    )
+}
+
+# rank curve
+for (tmp_i in paste0("susp_",tmp_name_susp)) {
+  p <- stat_susp_OTU %>%
+      filter(manip_susp %in% tmp_i) %>%
+      ggplot() +
+      geom_col(aes(x=reorder(OTU,desc(susp_C_relab)),y=susp_C_relab),fill = "#cccccc")+
+      geom_col(aes(x=reorder(OTU,desc(susp_C_relab)),y=manip_susp_relab,fill = ratio_cat))+
+      geom_vline(xintercept = seq(10.5,236,10),lwd=0.1, color = "#cccccc") +
+      scale_y_continuous(trans = "asn") +
+      scale_fill_manual(values = c("#FF3366","#3399FF","#333333"))+
+      labs(title = tmp_i) +
+      theme_light() +
+      theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90),
+        panel.grid.major.x = element_blank())
+  print(p)
+  
+  library(ggedit)
+  # export svg
+  ggsave(plot = p,
+         filename = paste0("C:/Users/srhuet/Downloads/tmp_fig",tmp_i,".svg"),
+         width = 200,height = 100,units = "mm")
+}
+
+```
+
+### itol
+
+```{r piechart 1 ratio_cat}
+
+tmp = tibble("OTU" = unique(stat_susp_OTU$OTU))
+tmp[,"ratio_cat"] <- ifelse(tmp$OTU %in%
+                              unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "higher_in_manip"]),
+                            "higher_in_manip",
+                            ifelse(tmp$OTU %in%
+                                     unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "lower_in_manip"]),
+                                   "lower_in_manip","n.s."))
+tmp[,"values"] <- 1
+tmp <- pivot_wider(tmp, names_from = ratio_cat,values_from = values,values_fill = 0)
+
+tmp_itol = tibble("OTU"= taxa_names(ps_16S_fltr),
+                  "external"=-1,
+                  "radius"=50) %>%
+  left_join(.,tmp,by="OTU")
+tmp_itol[is.na(tmp_itol)] <- 0
+
+```
+
+
+```{r itol piechart 4 susp}
+
+tmp_itol = tibble("OTU"= taxa_names(ps_16S_fltr),
+                  "external"=-1,
+                  "radius"=50)
+
+tmp = stat_susp_OTU %>%
+  dplyr::group_by(OTU,ratio_cat) %>%
+  dplyr::summarise(piechart = n()) %>%
+  pivot_wider(.,names_from = ratio_cat,values_from = piechart,values_fill = 0)
+
+tmp_itol <- left_join(tmp_itol,tmp)
+tmp_itol[is.na(tmp_itol)] <- 0
+
+# extract data
+#write.csv(tmp_itol,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+# COLOR_MIN,#3399FF / COLOR_MAX,#FF3366
+
+```
+
+
+```{r itol binary}
+
+# select data
+tmp = stat_susp_OTU
+
+# insert data in 258 most abund OTUs
+## data for n.s.
+tmp_data = tibble("OTU"= taxa_names(ps_16S_fltr))
+tmp_data[,"susp_C"] <- ifelse(tmp_data$OTU %in% tmp$OTU[tmp$susp_C_relab >0],1,-1)
+tmp_data[,"susp_MAC_a1"] <- ifelse(tmp_data$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_MAC_a1" &
+                                                tmp$manip_susp_relab >0],0,-1)
+tmp_data[,"susp_MAC_a2"] <- ifelse(tmp_data$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_MAC_a2" &
+                                                tmp$manip_susp_relab >0],0,-1)
+tmp_data[,"susp_PEB_a1"] <- ifelse(tmp_data$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_PEB_a1" &
+                                                tmp$manip_susp_relab >0],0,-1)
+tmp_data[,"susp_PEB_a2"] <- ifelse(tmp_data$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_PEB_a2" &
+                                                tmp$manip_susp_relab >0],0,-1)
+## data for higher_in_manip
+tmp_data_h = tibble("OTU"= taxa_names(ps_16S_fltr))
+tmp_data_h[,"susp_C"] <- -1
+tmp_data_h[,"susp_MAC_a1"] <- ifelse(tmp_data_h$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_MAC_a1" &
+                                                tmp$manip_susp_relab >0 &
+                                                tmp$ratio_cat == "higher_in_manip"],1,-1)
+tmp_data_h[,"susp_MAC_a2"] <- ifelse(tmp_data_h$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_MAC_a2" &
+                                                tmp$manip_susp_relab >0 &
+                                                tmp$ratio_cat == "higher_in_manip"],1,-1)
+tmp_data_h[,"susp_PEB_a1"] <- ifelse(tmp_data_h$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_PEB_a1" &
+                                                tmp$manip_susp_relab >0 &
+                                                tmp$ratio_cat == "higher_in_manip"],1,-1)
+tmp_data_h[,"susp_PEB_a2"] <- ifelse(tmp_data_h$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_PEB_a2" &
+                                                tmp$manip_susp_relab >0 &
+                                                tmp$ratio_cat == "higher_in_manip"],1,-1)
+## data for lower_in_manip
+tmp_data_l = tibble("OTU"= taxa_names(ps_16S_fltr))
+tmp_data_l[,"susp_C"] <- -1
+tmp_data_l[,"susp_MAC_a1"] <- ifelse(tmp_data_l$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_MAC_a1" &
+                                                tmp$manip_susp_relab >0 &
+                                                tmp$ratio_cat == "lower_in_manip"],1,-1)
+tmp_data_l[,"susp_MAC_a2"] <- ifelse(tmp_data_l$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_MAC_a2" &
+                                                tmp$manip_susp_relab >0 &
+                                                tmp$ratio_cat == "lower_in_manip"],1,-1)
+tmp_data_l[,"susp_PEB_a1"] <- ifelse(tmp_data_l$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_PEB_a1" &
+                                                tmp$manip_susp_relab >0 &
+                                                tmp$ratio_cat == "lower_in_manip"],1,-1)
+tmp_data_l[,"susp_PEB_a2"] <- ifelse(tmp_data_l$OTU %in% 
+                                     tmp$OTU[tmp$manip_susp == "susp_PEB_a2" &
+                                                tmp$manip_susp_relab >0 &
+                                                tmp$ratio_cat == "lower_in_manip"],1,-1)
+# extract data
+write.csv(tmp_data,"iTOL/tmp_itol_ns.csv",row.names = F,quote = F)
+write.csv(tmp_data_h,"iTOL/tmp_itol_h.csv",row.names = F,quote = F)
+write.csv(tmp_data_l,"iTOL/tmp_itol_l.csv",row.names = F,quote = F)
+
+
+```
+
+
+## effect of coal (stat_q2)
+Effect of coalescence on the 236 most abundant OTUs detected in suspensions:
+
+```{r plot by rel ab in susp}
+
+# combine with stat_q2 data
+tmp_stat_q2 <- stat_q2_otu_comparison_sum_w0 %>%
+  dplyr::filter(OTU %in% stat_susp_OTU$OTU 
+                & pval_adjust <= 0.05) %>%
+  select(OTU,g2,estimate) %>%
+  pivot_wider(.,names_from = g2, values_from = estimate) %>%
+  left_join(tmp_relab_susp,.)
+tmp_stat_q2[is.na(tmp_stat_q2)] <- 0
+
+# wrangle data
+tmp_name_d = c("d1","d2","d3")
+tmp_loop_df = tibble()
+
+for (tmp_i in tmp_name_susp) {
+  for (tmp_j in tmp_name_d) {
+    
+    tmp_df <- tibble("OTU"=tmp_stat_q2$OTU,
+                     "susp_C"=unlist(tmp_stat_q2$susp_C),
+                     "susp"=tmp_i,
+                     "manip_susp_relab"=unlist(tmp_stat_q2[,paste0("susp_",tmp_i)]),
+                     "ratio"= unlist(tmp_stat_q2[,tmp_i]),
+                     "treatment"=paste0(tmp_i,tmp_j),
+                     "estimate"= unlist(tmp_stat_q2[,paste0(tmp_i,tmp_j)]))
+    tmp_loop_df <- rbind(tmp_loop_df,tmp_df)
+
+    
+  }
+  
+}
+
+## in the way the ratio was calculated, a ratio >0.5 means higher rel ab inn manip susp
+tmp_loop_df[,"ratio_cat"] <- ifelse(tmp_loop_df$ratio >0.5,"higher_in_manip","lower_in_manip")
+
+
+# PLOT REL AB IN SUSP
+for (tmp_i in tmp_name_susp) {
+  print(
+    tmp_loop_df %>%
+      filter(susp %in% tmp_i) %>%
+      ggplot() +
+      aes(x = susp_C, y = manip_susp_relab, fill = -estimate, size = abs(estimate)) +
+      geom_point(shape = "circle filled") +
+      geom_abline(intercept = 0) +
+      facet_wrap(vars(treatment)) +
+      scale_x_continuous(trans = "asn") +
+      scale_y_continuous(trans = "asn") +
+      scale_fill_gradient2(low = "#3399FF" ,mid = "white",high = "#FF3366",
+                           limits = c(-6, 6)) +
+      scale_size_continuous(limits = c(0, 6)) +
+      theme_light() +
+      labs(title = tmp_i)
+    )
+}
+
+# TEST CORRELATION
+
+## should I test the correlation only for OTUs detected in the manipulated suspensions?
+tmp_cor_df <- tmp_loop_df #%>%
+  #filter(OTU %in% tmp_OTUs_56)
+
+# use the lm function in R to fit a linear regression model and extract the formula
+# I calculate correlation for each treatment to not replicate the suspension ratio data
+for (tmp_i in tmp_name_susp) {
+  for (tmp_j in tmp_name_d) {
+    tmp_df <- tmp_cor_df %>%
+      filter(susp %in% tmp_i
+             & treatment %in% paste0(tmp_i,tmp_j))
+    tmp_aov <- aov(estimate ~ ratio_cat, data = tmp_df)
+    tmp_aov_sum <- summary(tmp_aov)
+    
+    print(paste0(tmp_i,tmp_j))
+    print(format(tmp_aov_sum[[1]][["Pr(>F)"]][1]*12, digits = 3,scientific = T))
+    print(ifelse(tmp_aov_sum[[1]][["Pr(>F)"]][1]*12 > 0.05,"n.s.",
+                 ifelse(tmp_aov_sum[[1]][["Pr(>F)"]][1]*12 > 0.01,"*",
+                        ifelse(tmp_aov_sum[[1]][["Pr(>F)"]][1]*12 > 0.001,"**",
+                               "***"
+                               ))))
+
+  }
+}
+
+# test: estimate ~ susp*ratio_cat
+tmp_aov <- aov(estimate ~ susp*ratio_cat*treatment, data = tmp_cor_df)
+tmp_aov_sum <- summary(tmp_aov)
+tmp_aov_sum
+length(unique(tmp_cor_df$OTU))
+
+# boxplot of the two variables
+for (tmp_i in tmp_name_susp) {
+  print(
+    tmp_cor_df %>%
+      filter(susp %in% tmp_i) %>%
+      ggplot() +
+      aes(x = ratio_cat, y = -estimate) +
+      geom_boxplot() +
+      geom_point(shape = "circle filled", aes(fill = -estimate, size = abs(estimate))) +
+      facet_wrap(vars(treatment)) +
+      scale_y_continuous(limits = c(-6, 6)) +
+      scale_fill_gradient2(low = "#3399FF" ,mid = "white",high = "#FF3366",
+                           limits = c(-6, 6)) +
+      scale_size_continuous(limits = c(0, 6)) +
+      theme_light()
+    )
+  
+}
+
+
+
+
+
+```
+
+```{r plot by coalescence effect}
+
+# stat q2
+tmp_stat_q2 <- stat_q2_otu_comparison_sum_w0 %>%
+  dplyr::filter(OTU %in% stat_susp_OTU$OTU 
+                & pval_adjust <= 0.05) %>%
+  select(OTU,g2,estimate)
+# stat susp
+tmp_data <- stat_susp_OTU %>%
+  select(OTU,manip_susp,ratio_cat)
+
+# combine with stat_q2 data
+tmp_loop_df <- tibble()
+tmp_name_susp = c("MAC_a1","MAC_a2","PEB_a1","PEB_a2")
+for (tmp_i in unique(stat_susp_OTU$OTU)) {
+  for (tmp_j in tmp_name_susp) {
+    tmp = tibble("OTU"=tmp_i,
+                 "manip_susp"=paste0("susp_",tmp_j),
+                 "treatment"=paste0(tmp_j,c("d1","d2","d3")))
+    tmp <- left_join(tmp,tmp_data,by=c("OTU","manip_susp"))
+    tmp <- left_join(tmp,tmp_stat_q2,by=c("OTU","treatment"="g2"))
+    tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  }
+}
+tmp_loop_df$estimate[is.na(tmp_loop_df$estimate)] <- 0
+tmp_loop_df[,"sign_comp"] <- ifelse(tmp_loop_df$estimate < 0,"up",
+                                    ifelse(tmp_loop_df$estimate > 0,"down","n.s."))
+tmp_loop_df[,"ratio_cat2"] <- ifelse(tmp_loop_df$ratio_cat == "higher_in_manip",
+                                     "higher_in_manip","other")
+
+# plot
+## factor ordering and colors
+tmp_loop_df$treatment <- factor(tmp_loop_df$treatment,
+                     levels = rev(sort(unique(tmp_loop_df$treatment))))
+tmp_loop_df$sign_comp <- factor(tmp_loop_df$sign_comp,levels = c("up","down","n.s."))
+
+## boxplot
+ggplot(tmp_loop_df) +
+  aes(x = -estimate, y = treatment, fill = ratio_cat) +
+  geom_boxplot() +
+  geom_point(shape="circle filled",position = position_dodge(width = 0.75))+
+  scale_fill_manual(values = c("#FF3366","#3399FF","#333333"))  +
+  theme_light()
+
+## barplot
+tmp_loop_df %>%
+  dplyr::filter(!(sign_comp %in% "n.s.")) %>%
+  ggplot() +
+  aes(y = treatment, fill = ratio_cat) +
+  geom_bar() +
+  scale_fill_manual(values = c("#FF3366","#3399FF","#333333")) +
+  theme_light() +
+  facet_wrap(vars(sign_comp))
+
+# test: estimate ~ susp*ratio_cat
+tmp_aov <- aov(estimate ~ manip_susp*ratio_cat*treatment, data = tmp_loop_df)
+tmp_aov_sum <- summary(tmp_aov)
+tmp_aov_sum
+## post hoc Tukey test
+library(agricolae)
+tmp_comp <- HSD.test(tmp_aov,c('ratio_cat','treatment'),alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("ratio_cat"=rownames(tmp_comp[["groups"]]),
+                  "mean"=tmp_comp[["groups"]][["tmp_data$value"]],
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+
+
+```
+
+
+
+## effect of properties (stat_q1)
+
+```{r effect of properties (236 OTUs)}
+
+# /!\ need to run {r OTUs in susp}
+
+tmp_stat_q1 <- stat_q1_otu_rel %>%
+  dplyr::filter(OTU %in% stat_susp_OTU$OTU &
+                  var != "Residuals")
+tmp_stat_q1[,"ratio_cat"] <- ifelse(tmp_stat_q1$OTU %in%
+                                      unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "higher_in_manip"]),
+                                    "higher_in_manip",
+                                    ifelse(tmp_stat_q1$OTU %in% 
+                                             unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "lower_in_manip"]),
+                                    "lower_in_manip","n.s."))
+
+# test: F-value ~ var*ratio_cat
+tmp_aov <- aov(rel_fval ~ var*ratio_cat, data = tmp_stat_q1)
+tmp_aov_sum <- summary(tmp_aov)
+tmp_aov_sum
+
+# plot
+## factor ordering and colors
+tmp_stat_q1$var <- factor(tmp_stat_q1$var,
+                     levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+tmp_stat_q1$var_type <- factor(tmp_stat_q1$var_type,
+                     levels = c("main","double","triple"))
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+## plot relative property effects
+tmp_stat_q1 %>%
+  filter(pval_adjust <= 0.05) %>% 
+  dplyr::group_by(ratio_cat,var,var_type) %>%
+  dplyr::summarise(mean_rfval = mean(rel_fval)) %>%
+  ggplot() +
+  aes(x= ratio_cat, y= mean_rfval, fill= var)+
+  geom_col(position = "fill")+
+  scale_fill_manual(values = tmp_colors)+
+  coord_flip()+
+  facet_grid(ratio_cat~var_type,
+             scales = "free",
+             switch = "y", 
+             space = "free_y") +
+  theme_classic() +
+    theme(strip.text = element_text(face="bold", size=10),
+        strip.background = element_rect(fill="#ffffff", colour="#ffffff",size=1.5),
+        strip.placement = "outside")
+
+
+```
+
+## q1 & q2
+
+
+```{r by treatment}
+
+# which OTUs are affected by coal
+tmp_df1 = stat_q2_otu_comparison_sum_w0 %>% 
+  filter(pval_adjust <= 0.05 
+         & OTU %in% tmp_OTUs_56)
+tmp_df1[,"sign_comp"] <- ifelse(tmp_df1$estimate <0,"1up","2down") # /!\ up = estimates <0
+tmp_df1 <- tmp_df1[,colnames(tmp_df1)[c(1,9,12)]]
+
+# which OTUs have signif fval
+tmp_df2 <- stat_q1_otu %>% 
+  filter(pval_adjust <= 0.05
+         & OTU %in% tmp_OTUs_56)
+tmp_df2 <- tmp_df2[,colnames(tmp_df2)[c(1,2,6)]]
+
+# how many sign_comp by var
+tmp_df <- left_join(tmp_df1,tmp_df2,by = "OTU")
+tmp_df <- na.omit(tmp_df)
+
+tmp_df <- tmp_df %>%
+  dplyr::group_by(g2,var,sign_comp) %>%
+  dplyr::summarise(nb_comp = n())
+tmp_df
+
+# add nb OTUs by sign_comp by ttt
+tmp_df3 <- tmp_df1 %>%
+  dplyr::group_by(g2,sign_comp) %>%
+  dplyr::summarise(nb_OTUs_heatmap = n()) # divide by nb var to have total nb of OTUs
+#  dplyr::summarise(nb_OTUs_heatmap = n()/length(unique(tmp_df$var))) # divide by nb var to have total nb of OTUs
+#tmp_df <- left_join(tmp_df,tmp_df3,by = c("g2", "sign_comp"))
+
+# add nb OTUs by sign_comp by ttt affected by factor
+tmp_df4 <- tmp_df1 %>% 
+  filter(OTU %in% unique(tmp_df2$OTU)) %>%
+  dplyr::group_by(g2,sign_comp) %>%
+  dplyr::summarise(nb_OTUs_fval = n()) # divided by nb var to have total nb of OTUs
+#  dplyr::summarise(nb_OTUs_fval = n()/length(unique(tmp_df$var))) # divided by nb var to have total nb of OTUs
+#tmp_df <- left_join(tmp_df,tmp_df4,by = c("g2", "sign_comp"))
+
+# plot
+## factor ordering and colors
+tmp_df3$g2 <- factor(tmp_df3$g2,
+                     levels = rev(sort(unique(tmp_df3$g2))))
+tmp_df$var <- factor(tmp_df$var,
+                     levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+
+
+ggplot() +
+  geom_col(data = tmp_df3, aes(x = g2,y=nb_OTUs_heatmap),fill="#cccccc") +
+  geom_col(data = tmp_df4, aes(x = g2,y=nb_OTUs_fval),fill="#999999") +
+  geom_col(data = tmp_df,aes(x = g2,y=nb_comp, fill = var),position = position_dodge(preserve = "single")) +
+  scale_fill_manual(values = tmp_colors) +
+  coord_flip() +
+  theme_light() +
+  facet_wrap(vars(sign_comp))
+
+# check
+tmp_df[tmp_df$g2 == "MAC_a1d1" & tmp_df$var == "d",]
+tmp_OTUs1 = tmp_df1$OTU[tmp_df1$g2 == "MAC_a1d1" & tmp_df1$sign_comp == "down"]
+tmp_OTUs2 = tmp_df2$OTU[tmp_df2$var == "d"]
+tmp_OTUs3 = unique(tmp_df2$OTU)
+length(intersect(tmp_OTUs1,tmp_OTUs3))
+
+```
+
+## network
+
+```{r OTUs in network}
+
+tmp_edges_otu <- PLN_model.StARS_xp2_edges
+tmp_nodes = PLN_model.StARS_xp2_nodes
+
+tmp_OTUs_susp = unique(stat_susp_OTU$OTU)
+tmp_OTUs_susp_higher = unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "higher_in_manip"])
+
+# are OTUs in network?
+table(tmp_OTUs_susp %in% tmp_nodes)
+table(tmp_OTUs_susp_higher %in% tmp_nodes)
+
+# how many edges?
+table(tmp_edges_otu$source %in% tmp_OTUs_susp | tmp_edges_otu$target %in% tmp_OTUs_susp)
+table(tmp_edges_otu$source %in% tmp_OTUs_susp_higher | tmp_edges_otu$target %in% tmp_OTUs_susp_higher)
+
+
+```
+
+```{r edges with tmp_OTUs_susp_higher}
+
+tmp_OTUs_susp_higher = unique(stat_susp_OTU$OTU[stat_susp_OTU$ratio_cat == "higher_in_manip"])
+
+tmp_edges_otu <- PLN_model.StARS_xp2_edges %>%
+  dplyr::filter(source %in% tmp_OTUs_susp_higher | target %in% tmp_OTUs_susp_higher)
+
+# how many pos as FALSE / neg as TRUE
+table(tmp_edges_otu$value <0)
+
+# how many links by OTU?
+tmp_top_OTUs = sort(table(c(tmp_edges_otu$source,tmp_edges_otu$target)),decreasing = T)
+tmp_top_OTUs <- tmp_top_OTUs[names(tmp_top_OTUs) %in% tmp_OTUs_susp_higher]
+tmp_top_OTUs
+
+# most connected OTUs
+tmp_edges_otu <- PLN_model.StARS_xp2_edges %>%
+  filter(source %in% names(tmp_top_OTUs)[1:2] | target %in% names(tmp_top_OTUs)[1:2])
+## how many pos as FALSE / neg as TRUE for 1 OTU
+table(tmp_edges_otu$value[tmp_edges_otu$source %in% names(tmp_top_OTUs)[2] 
+                          | tmp_edges_otu$target %in% names(tmp_top_OTUs)[2]] <0)
+
+
+```
+
+### venn
+
+
+```{r venn & top OTUs}
+
+
+
+# /!\ need tmp_venn_edges_taxo from {r taxo_by_edges} in 6.1.Compare_network_stat.Rmd
+tmp_OTUs = c("OTU-219","OTU-45")
+
+tmp_venn_top <- tmp_venn_edges_taxo %>%
+  filter(source %in% tmp_OTUs | target %in% tmp_OTUs)
+tmp_venn_top[,"top_OTU"] <- ifelse(tmp_venn_top$source == "OTU-219","OTU-219",
+                                   ifelse(tmp_venn_top$target == "OTU-219","OTU-219",
+                                          "OTU-45"))
+
+# plot nb link by factor
+## reorder factor + colors
+tmp_venn_top$set <- factor(tmp_venn_top$set,
+                             levels = rev(c("all..compo..dens","all..div..dens","all..div..compo",
+                                        "all..dens","all..compo","all..div","all","all..div..compo..dens")))
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd","#666666"))
+## plot
+tmp <- tmp_venn_top %>%
+  dplyr::group_by(set,edge_type,top_OTU) %>%
+  dplyr::summarise(count=n())
+tmp$count <- ifelse(tmp$edge_type =="pos",tmp$count,-tmp$count)
+tmp %>%
+  ggplot() +
+  aes(x = set, y = count, fill = set) +
+  geom_col() +
+  geom_hline(yintercept = 0,color = "#333333") +
+  ylim(c(-10,10)) +
+  scale_fill_manual(values = tmp_colors) +
+  coord_flip() +
+  facet_wrap(vars(top_OTU)) +
+  theme_light()
+
+# plot nb links with factor by taxa
+tmp <- tmp_venn_top %>%
+  dplyr::group_by(taxa,set,edge_type,top_OTU) %>%
+  dplyr::summarise(count=n())
+tmp$count <- ifelse(tmp$edge_type =="pos",tmp$count,-tmp$count)
+tmp %>%
+  ggplot() +
+  aes(x = taxa, y = count, fill = set) +
+  geom_col() +
+  geom_hline(yintercept = 0,color = "#333333") +
+  ylim(c(-7,7)) +
+  scale_fill_manual(values = tmp_colors) +
+  coord_flip() +
+  facet_grid(top_OTU~.,scales = "free") +
+  theme_light() 
+
+
+```
+
+```{r plot several OTU abundance}
+
+# /!\ need tmp_venn_top from {r venn & top OTUs}
+
+tmp_name_edge = "Bacillus - Pseudochrobactrum"
+#tmp_name_edge = "Massilia - Stenotrophomonas"
+
+tmp_OTUs <- sort(unique(c(tmp_venn_top$source[tmp_venn_top$taxa == tmp_name_edge],
+                          tmp_venn_top$target[tmp_venn_top$taxa == tmp_name_edge])))
+
+tmp_ps = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% tmp_OTUs,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+# treatment colors
+tmp_colors <- Color_sets[Color_sets$set == "treatments",c("treatment","color","order")]  
+tmp_colors <- tmp_colors[tmp_colors$treatment %in% tmp_data$treatment,]
+
+ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance,
+                         fill=treatment))+
+  geom_boxplot(outlier.size = 0.1,lwd=0.1)+
+  geom_point(color="#333333", size=0.1) +
+  labs(title = "Node OTUs",y="Relative abundance (among filtered OTUs)",x="Treatments")+
+#  labs(title = tmp_OTUs,y="Raw abundance (log10 scale)",x="Treatments")+
+  #scale_y_log10()+
+  scale_y_continuous(trans = "asn") +
+  scale_fill_manual(values = tmp_colors$color)+
+  #geom_hline(yintercept = 0.25/100)+
+  #geom_hline(yintercept = 0.1/100)+
+  geom_hline(yintercept = 0)+
+  facet_grid(.~Genus+OTU)+
+  theme_light()+
+  theme(axis.text.x  = element_text(vjust=0.5, size=12,angle = 90))
+
+view(tmp_abund[tmp_abund$OTU %in% tmp_OTUs,])
+
+```
+
+## rank curve
+
+```{r rank curve}
+
+# /!\ need tmp_relab_susp in {r OTUs in susp}
+
+tmp_nodes = PLN_model.StARS_xp2_nodes
+
+for (tmp_i in tmp_name_susp) {
+  tmp_abund <- tibble("OTU"=tmp_relab_susp$OTU,
+                      "susp_C"=tmp_relab_susp$susp_C,
+                      "manip_susp"=unlist(tmp_relab_susp[,paste0("susp_",tmp_i)]))
+  # set in or out network
+  tmp_abund[,"network"] <- ifelse(tmp_abund$OTU %in% tmp_nodes,"In network","Not in network")
+  
+  # plot
+  print(
+    ggplot(tmp_abund)+
+      geom_col(aes(x=reorder(OTU,desc(susp_C)),y=susp_C),fill = "#cccccc")+
+      geom_col(aes(x=reorder(OTU,desc(susp_C)),y=manip_susp,fill = network))+
+      geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),lwd=0.1, color = "#cccccc") +
+      scale_y_continuous(trans = "asn") +
+      scale_fill_manual(name = "Presence in network",values = c("#FF6666","#333333"))+
+      labs(title = tmp_i) +
+      theme_light() +
+      theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90),
+        panel.grid.major.x = element_blank())
+    )
+  
+}
+
+
+colnames(tmp_abund)
+
+# plot
+ggplot(tmp_abund)+
+  geom_col(aes(x=reorder(OTU,desc(susp_C)),
+                                 y=susp_PEB_a2,
+                                 fill=network))+
+  scale_y_continuous(trans = "asn") +
+  theme_light() +
+  theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90),
+        panel.grid.major.x = element_line(color = "white", size = 0.8))+
+  scale_fill_manual(values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+
+#```
+
+#```{r extract fig}
+library(ggedit)
+
+p[["labels"]][["title"]] <- element_blank()
+p[["labels"]][["x"]] <- element_blank()
+p[["labels"]][["y"]] <- element_blank()
+p[["theme"]][["legend.position"]] <- 'none'
+p[["theme"]][["axis.text.x"]] <- element_blank()
+p[["theme"]][["axis.text.y"]] <- element_blank()
+# export svg
+ggsave(plot = p,
+       filename = "C:/Users/srhuet/Downloads/tmp_fig.svg",
+       width = 156,height = 36,units = "mm")
+
+```
+
+### bin ?
+
+```{r OTUs in susp}
+
+# calculate rel_ab in susp
+tmp_ps = ps_16S_susp
+## remove T0 samples
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment != "T0",tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) >0,tmp_ps)
+
+## keep OTUs among most abund in microcosms
+tmp_ps <- prune_taxa(taxa_names(tmp_ps) %in% taxa_names(ps_16S_fltr),tmp_ps)
+
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## extract data
+tmp_relab_susp = psmelt(tmp_ps) %>%
+  
+  ## keep OTUs among most abund in microcosms: did before calculating the rel ab
+  #dplyr::filter(OTU %in% taxa_names(ps_16S_fltr)) %>% 
+  
+  ## calculate median rel abund for each OTUs in each susp
+  dplyr::group_by(OTU,treatment) %>%
+  dplyr::summarise(mean_relab = mean(Abundance)) %>%
+  pivot_wider(.,names_from = treatment, values_from = mean_relab) %>%
+  ungroup()
+
+# calculate rel abund ratio as: manip susp / (manip susp + susp_C)
+tmp_name_susp = c("MAC_a1","MAC_a2","PEB_a1","PEB_a2")
+for (tmp_i in tmp_name_susp) {
+  tmp_relab_susp[,tmp_i] <- tmp_relab_susp[,paste0("susp_",tmp_i)] /
+    (tmp_relab_susp[,paste0("susp_",tmp_i)] + tmp_relab_susp$susp_C)
+}
+
+# pivot longer
+tmp_relab_ratio = tibble()
+for (tmp_i in tmp_name_susp) {
+  tmp_df <- tibble("OTU"=tmp_relab_susp$OTU,
+                   "susp_C"=unlist(tmp_relab_susp$susp_C),
+                   "susp"=tmp_i,
+                   "manip_susp_relab"=unlist(tmp_relab_susp[,paste0("susp_",tmp_i)]),
+                   "ratio"= unlist(tmp_relab_susp[,tmp_i]))
+  tmp_relab_ratio <- rbind(tmp_relab_ratio,tmp_df)
+
+}
+# add cat var for ratio
+tmp_relab_ratio[is.na(tmp_relab_ratio)] <- 0
+## in the way the ratio was calculated, a ratio >0.5 means higher rel ab inn manip susp
+tmp_relab_ratio[,"ratio_cat"] <- ifelse(tmp_relab_ratio$ratio >0.5,"higher_in_manip","lower_in_manip")
+
+
+# OTUs in manipulated susp and most abund in microcosms
+tmp_OTUs_56 = intersect(taxa_names(ps_16S_susp_manip),taxa_names(ps_16S_fltr))
+# which OTU higher in manip susp
+tmp_OTUs_susp_higher <- unique(tmp_relab_ratio$OTU[tmp_relab_ratio$ratio >0.5])
+
+```
+
+```{r diff abund between susp}
+library(lme4)
+library(emmeans)
+
+tmp_ps = ps_16S_susp
+## remove T0 samples
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment != "T0",tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) >0,tmp_ps)
+## subset taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% taxa_names(ps_16S_fltr),tmp_ps)
+
+
+# define model variables
+#  treatment
+tmp_ttt = unlist(tmp_ps@sam_data$treatment)
+names(tmp_ttt) <- unlist(tmp_ps@sam_data$sample)
+# offset
+tmp_o = log(sample_sums(tmp_ps))
+names(tmp_o) <- unlist(tmp_ps@sam_data$sample)
+# random effect
+tmp_z <- unlist(tmp_ps@sam_data$sample)
+  
+# global df
+tmp_model_sum_global = tibble()
+tmp_emmeans_sum_global = tibble()
+
+
+for (tmp_i in taxa_names(tmp_ps)) {
+  tmp_OTU = tmp_i
+  
+  # response variable
+  tmp_y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  
+  tmp_glmer1 <- glmer(tmp_y ~ -1 + tmp_ttt + (1 | tmp_z),family='poisson', offset = tmp_o)
+  tmp_glmer0 <- glmer(tmp_y ~ 1 + (1 | tmp_z),family='poisson', offset = tmp_o)
+  
+  # LRT
+  tmp_LRT <- 2*(logLik(tmp_glmer1)[1] - logLik(tmp_glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # model summary
+    tmp_model_sum = summary(tmp_glmer1)$coefficients
+    tmp_model_sum = tibble("OTU"= tmp_OTU,
+                           "treatment"=rownames(tmp_model_sum),
+                           as_tibble(tmp_model_sum))
+    
+    # multiple comparaison
+    tmp_emmeans = emmeans(tmp_glmer1,pairwise~tmp_ttt,adjust="none")
+    ## select p value
+    tmp_emmeans_sum = summary(tmp_emmeans)
+    tmp_emmeans_sum = tmp_emmeans_sum[["contrasts"]]
+    ## wrangle summary
+    tmp_df = tmp_emmeans_sum
+    tmp = unlist(strsplit(as.character(tmp_df$contrast)," - "))
+    tmp_df[,"g1"] <- tmp[seq(1,length(tmp),by=2)]
+    tmp_df[,"g2"] <- tmp[seq(2,length(tmp),by=2)]
+    # tmp_df = tmp_df[tmp_df$g1 == "C",] # keep only comparison to control
+    tmp_emmeans_sum = cbind("OTU"=tmp_OTU,tmp_df)
+    
+    rm(tmp_emmeans,tmp,tmp_df)
+    
+    } else {
+      # empty model summary
+      tmp_model_sum = tibble("OTU"=tmp_OTU,
+                             "treatment"=NA,
+                             "Estimate"=NA,
+                             "Std. Error"=NA,
+                             "z value"=NA,
+                             "Pr(>|z|)"=1)
+
+      
+      # empty emmeans summary
+      tmp_emmeans_sum = tibble("OTU"=tmp_OTU,
+                               "contrast"=NA,
+                               "estimate"=NA,
+                               "SE"=NA,
+                               "df"=NA,
+                               "z.ratio"=NA,
+                               "p.value"=1,
+                               "g1"=NA,
+                               "g2"=NA)
+  }
+  
+  # global df
+  tmp_model_sum_global = rbind(tmp_model_sum_global,tmp_model_sum)
+  tmp_emmeans_sum_global = rbind(tmp_emmeans_sum_global,tmp_emmeans_sum)
+
+
+}
+
+
+# bonferroni p-val correction : 214 OTUs * 10 comparisons
+tmp_emmeans_sum_global[,"pval_adjust"] <- tmp_emmeans_sum_global$p.value * ntaxa(tmp_ps) *10
+
+# keep signif estimates
+tmp_emmeans_sum_global[,"rel_estimate"] <- ifelse(tmp_emmeans_sum_global$pval_adjust <=0.05,
+                                                  tmp_emmeans_sum_global$estimate,
+                                                  0)
+
+```
+
+```{r edges}
+
+tmp_edges_otu <- PLN_model.StARS_xp2_edges
+# are connected OTUs detected in manip susp
+tmp_edges_otu[,"source_in_manip_susp"] <- ifelse(tmp_edges_otu$source %in% tmp_OTUs_56,"yes","no")
+tmp_edges_otu[,"target_in_manip_susp"] <- ifelse(tmp_edges_otu$target %in% tmp_OTUs_56,"yes","no")
+
+# which edges
+table(tmp_edges_otu$source %in% tmp_OTUs_56 & tmp_edges_otu$target %in% tmp_OTUs_56)
+table(tmp_edges_otu$source %in% tmp_OTUs_20 | tmp_edges_otu$target %in% tmp_OTUs_20)
+
+# most connected OTUs
+tmp <- table(c(tmp_edges_otu$source[tmp_edges_otu$source_in_manip_susp =="yes"],
+        tmp_edges_otu$target[tmp_edges_otu$target_in_manip_susp =="yes"]))
+tmp <- tmp[order(tmp,decreasing = T)][1:4]
+
+tmp_most_connect_otu <- tmp_edges_otu %>%
+  dplyr::filter(source %in% names(tmp)
+                | target %in% names(tmp))
+
+
+# plot with genus
+tmp_plot_data <- tmp_df_most_lkd %>%
+  dplyr::filter(edge_name %in% tmp_most_connect_otu$edge_name)
+
+tmp_colors <- c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd","#666666")
+
+## plot nb links with factor by taxa
+tmp <- tmp_plot_data %>%
+  dplyr::filter(source_in_manip_susp == "yes" | target_in_manip_susp == "yes") %>%
+  dplyr::group_by(taxa,set,edge_type) %>%
+  dplyr::summarise(count=n())
+tmp$count <- ifelse(tmp$edge_type =="pos",tmp$count,-tmp$count)
+tmp %>%
+  ggplot() +
+  aes(x = taxa, y = count, fill = set) +
+  geom_col() +
+  scale_fill_manual(values = tmp_colors) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") +
+  ylim(c(-7,7))
+
+```
+
+
+```{r most linked genus}
+
+# /!\ see {r plot most linked genus} in 6.1.Compare_network_stat.Rmd
+
+# are most connected genus detected in manip susp
+tmp_df_most_lkd[,"source_in_manip_susp"] <- ifelse(tmp_df_most_lkd$source %in% tmp_OTUs_56,"yes","no")
+tmp_df_most_lkd[,"target_in_manip_susp"] <- ifelse(tmp_df_most_lkd$target %in% tmp_OTUs_56,"yes","no")
+
+# which edges
+table(tmp_df_most_lkd$source_in_manip_susp == "yes" | tmp_df_most_lkd$target_in_manip_susp == "yes")
+# which OTUs
+intersect(unique(c(tmp_df_most_lkd$source,tmp_df_most_lkd$target)),tmp_OTUs_56)
+# from which genus?
+taxtab$genus_clean[taxtab$OTU %in% intersect(unique(c(tmp_df_most_lkd$source,tmp_df_most_lkd$target)),tmp_OTUs_56)]
+
+
+# plot
+tmp_colors <- c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd","#666666")
+
+## plot nb links with factor by taxa
+tmp <- tmp_df_most_lkd %>%
+  dplyr::filter(source_in_manip_susp == "yes" | target_in_manip_susp == "yes") %>%
+  dplyr::group_by(taxa,set,edge_type) %>%
+  dplyr::summarise(count=n())
+tmp$count <- ifelse(tmp$edge_type =="pos",tmp$count,-tmp$count)
+tmp %>%
+  ggplot() +
+  aes(x = taxa, y = count, fill = set) +
+  geom_col() +
+  scale_fill_manual(values = tmp_colors) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") +
+  ylim(c(-7,7))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1275 @@
+---
+title: "1.3.Suspension_analysis"
+author: "Sarah HUET"
+date: "12/01/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+# load libraries
+library(tidyr)
+library(tibble)
+library(stringr)
+library(dplyr)
+library(phyloseq)
+library(ggplot2)
+
+```
+
+# plot otu abundance
+
+```{r plot 1 OTU abundance}
+
+tmp_OTU = "OTU-17"
+
+tmp_ps = ps_16S
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps)==tmp_OTU,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+
+
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance))+
+  geom_boxplot()+
+  geom_jitter(color="red", size=2, alpha=0.9) +
+  labs(title = tmp_OTU,y="Relative abundance (among non filtered OTUs)",x="Treatments")+
+#  labs(title = tmp_OTU,y="Raw abundance (log10 scale)",x="Treatments")+
+  scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  theme(axis.text.x = element_text(angle = 90))
+p
+
+```
+
+# wrangle ps objects
+
+```{r only manipulated suspensions}
+
+tmp_ps = ps_16S_susp
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment %in% tmp_ttt, tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps)>0, tmp_ps)
+
+```
+
+
+# rank abundance 
+
+## curve by broth with same OTUs in ordinate axis
+
+```{r rank relabund curve in suspensions}
+
+# suspensions
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+
+# extract ps data
+tmp_ps = ps_16S_susp
+tmp_data <- psmelt(tmp_ps)
+# aggregate by treatment
+tmp_df <- tmp_data   %>%
+  group_by(treatment,OTU)   %>%
+  summarise( sum_abund = sum(Abundance))
+# pivot wider
+tmp_df = pivot_wider(tmp_df[,1:3],names_from = "treatment",values_from = "sum_abund")
+# change values by relative abundance
+tmp_df_relab <- tibble("OTU"=tmp_df$OTU,
+                       as_tibble(apply(tmp_df[,-1], 2, FUN=function(x) x/sum(x)*100)))
+
+# select OTU in susp
+tmp_df_rank = tmp_df_relab[tmp_df_relab$susp_MAC_a1 >0 |
+                               tmp_df_relab$susp_MAC_a2 >0 |
+                               tmp_df_relab$susp_PEB_a1 >0 |
+                               tmp_df_relab$susp_PEB_a2 >0,]
+# add rank abund
+## add rank abund in suspensions
+tmp_df_rank[,"rank_abund"] <- apply(tmp_df_rank[,tmp_ttt], 1, FUN=function(x) sum(x))
+## add rank abund in T0
+tmp_df_rank$rank_abund <- ifelse(tmp_df_rank$T0 > 0,
+                                   tmp_df_rank$T0*10^6,
+                                   tmp_df_rank$rank_abund)
+# add presence in T0
+tmp_df_rank[,"pres_T0"] <- ifelse(tmp_df_rank$T0 > 0,
+                                    "Present in T0",
+                                    "Not present in T0")
+
+# pivot longer
+tmp_plot_data <- pivot_longer(tmp_df_rank[,c("OTU",tmp_ttt)],cols = !OTU,
+                              names_to = "susp",values_to = "rel_abun")
+tmp_plot_data <- left_join(tmp_plot_data,tmp_df_rank[,c(1,8,9)],by="OTU")
+
+
+
+# plot
+  
+p <- ggplot(tmp_plot_data)+
+  geom_col(aes(x=reorder(OTU,rank_abund),
+               y=rel_abun,
+               fill = pres_T0))+
+  theme_classic() +
+  labs(x = "OTUs detected in maniplated suspensions",
+       y ="Relative abundance")+
+  theme(axis.text.x  = element_text(vjust=0.5, size=10,angle = 0),
+        panel.grid.major.y = element_line(color = "white", size = 0.8),
+        legend.position = "none")+ 
+  scale_fill_manual(name = "Presence in T0",
+                    values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")+
+  geom_hline(yintercept = c(0,20,40,60),
+             lwd=0.1, color = "#cccccc")+
+  coord_flip()+
+  #scale_y_log10()+
+  facet_grid(cols = vars(susp))
+
+
+p
+
+ggsave(plot = p,
+       filename = "tmp_fig.svg",
+       width = 185,height = 265,units = "mm")
+
+```
+
+```{r rank median abund curve in suspensions}
+
+# suspensions
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+
+# extract ps data
+tmp_ps = ps_16S_susp
+tmp_data <- psmelt(tmp_ps)
+# aggregate by treatment
+tmp_df <- tmp_data   %>%
+  group_by(treatment,OTU)   %>%
+  summarise( sum_abund = median(Abundance))
+# pivot wider
+tmp_df = pivot_wider(tmp_df[,1:3],names_from = "treatment",values_from = "sum_abund")
+
+# select OTU in susp
+tmp_df_rank = tmp_df[tmp_df$susp_MAC_a1 >0 |
+                               tmp_df$susp_MAC_a2 >0 |
+                               tmp_df$susp_PEB_a1 >0 |
+                               tmp_df$susp_PEB_a2 >0,]
+# add rank abund
+## add rank abund in suspensions
+tmp_df_rank[,"rank_abund"] <- apply(tmp_df_rank[,tmp_ttt], 1, FUN=function(x) sum(x))
+## add rank abund in T0
+tmp_df_rank$rank_abund <- ifelse(tmp_df_rank$T0 > 0,
+                                   tmp_df_rank$T0*10^6,
+                                   tmp_df_rank$rank_abund)
+# add presence in T0
+tmp_df_rank[,"pres_T0"] <- ifelse(tmp_df_rank$T0 > 0,
+                                    "Present in T0",
+                                    "Not present in T0")
+
+# pivot longer
+tmp_plot_data <- pivot_longer(tmp_df_rank[,c("OTU",tmp_ttt)],cols = !OTU,
+                              names_to = "susp",values_to = "rel_abun")
+tmp_plot_data <- left_join(tmp_plot_data,tmp_df_rank[,c(1,8,9)],by="OTU")
+
+
+
+# plot
+  
+p <- ggplot(tmp_plot_data)+
+  geom_col(aes(x=reorder(OTU,rank_abund),
+               y=rel_abun,
+               fill = pres_T0))+
+  theme_classic() +
+  labs(x = "OTUs detected in maniplated suspensions",
+       y ="Relative abundance")+
+  theme(axis.text.x  = element_text(vjust=0.5, size=10,angle = 0),
+        panel.grid.major.y = element_line(color = "white", size = 0.8),
+        legend.position = "none")+ 
+  scale_fill_manual(name = "Presence in T0",
+                    values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")+
+  geom_hline(yintercept = c(1,10,100,1000,10000),
+             lwd=0.1, color = "#cccccc")+
+  coord_flip()+
+  scale_y_log10()+
+  facet_grid(cols = vars(susp))
+
+
+p
+
+ggsave(plot = p,
+       filename = "tmp_fig.svg",
+       width = 185,height = 265,units = "mm")
+
+```
+## curve by broth
+I want a curve of the abundance of the OTU present in MAC and PEB suspensions in decreasing order of abundance regarding their rank abundance in original soil samples and in suspension
+
+```{r rank abundance curve in MAC suspension}
+
+# i choose ps_fltr because it is the one we used to calculate network
+tmp_ps = ps_16S_susp
+tmp_ps = prune_samples(tmp_ps@sam_data$treatment %in% c("susp_MAC_a1","susp_MAC_a2"),tmp_ps)
+tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+
+tmp_selected_otu = tibble("OTU"=taxa_names(tmp_ps),
+                          "taxa_sum_susp"=taxa_sums(tmp_ps))
+tmp_selected_otu[,"rel_ab_susp"] = tmp_selected_otu$taxa_sum_susp / sum(tmp_selected_otu$taxa_sum_susp)
+
+# calculate relabund in T0
+tmp_ps = ps_16S_susp
+tmp_ps = prune_samples(tmp_ps@sam_data$treatment == "T0",tmp_ps)
+tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+
+tmp_otu_t0 = tibble("OTU"=taxa_names(tmp_ps),
+                    "taxa_sum_T0"=taxa_sums(tmp_ps))
+tmp_otu_t0[,"rel_ab_T0"] = tmp_otu_t0$taxa_sum_T0 / sum(tmp_otu_t0$taxa_sum_T0) 
+
+# join data
+tmp_plot_data <- left_join(tmp_selected_otu,tmp_otu_t0)
+tmp_plot_data[,"rank_abund"] <- ifelse(is.na(tmp_plot_data$rel_ab_T0),
+                                       tmp_plot_data$rel_ab_susp,
+                                       tmp_plot_data$rel_ab_T0+10)
+tmp_plot_data[,"T0"] <- ifelse(is.na(tmp_plot_data$rel_ab_T0),
+                                           "Not present in T0",
+                                           "Present in T0")
+
+
+
+# plot
+
+p <- ggplot(tmp_plot_data)+
+  geom_col(aes(x=reorder(OTU,rank_abund),
+               y=rel_ab_susp,
+               #y=abs(1/log(rel_ab_susp)),
+               #y=rel_ab_susp*10^5,
+               fill = T0))+
+  theme_classic() +
+  labs(x = "Most abundant OTUs",
+       y = "Relative abundance in MAC suspension")+
+  theme(axis.text.x  = element_text(vjust=0.5, size=10,angle = 0),
+        panel.grid.major.y = element_line(color = "white", size = 0.8))+ 
+  scale_fill_manual(name = "Presence in T0",
+                    values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")+
+  geom_vline(xintercept = nrow(tmp_plot_data)-
+               nrow(tmp_plot_data[complete.cases(tmp_plot_data),])+0.5,
+             lwd=0.5, color = "#FF6666")+
+  geom_hline(yintercept = c(0,0.2,0.4,0.6),
+             lwd=0.1, color = "#cccccc")+
+  coord_flip()
+#+ scale_y_log10()
+
+
+p
+
+```
+
+```{r rank abundance curve in PEB suspension}
+
+# i choose ps_fltr because it is the one we used to calculate network
+tmp_ps = ps_16S_susp
+tmp_ps = prune_samples(tmp_ps@sam_data$treatment %in% c("susp_PEB_a1","susp_PEB_a2"),tmp_ps)
+tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+
+tmp_selected_otu = tibble("OTU"=taxa_names(tmp_ps),
+                          "taxa_sum_susp"=taxa_sums(tmp_ps))
+tmp_selected_otu[,"rel_ab_susp"] = tmp_selected_otu$taxa_sum_susp / sum(tmp_selected_otu$taxa_sum_susp)
+
+# calculate relabund in T0
+tmp_ps = ps_16S_susp
+tmp_ps = prune_samples(tmp_ps@sam_data$treatment == "T0",tmp_ps)
+tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+
+tmp_otu_t0 = tibble("OTU"=taxa_names(tmp_ps),
+                    "taxa_sum_T0"=taxa_sums(tmp_ps))
+tmp_otu_t0[,"rel_ab_T0"] = tmp_otu_t0$taxa_sum_T0 / sum(tmp_otu_t0$taxa_sum_T0)
+
+# join data
+tmp_plot_data <- left_join(tmp_selected_otu,tmp_otu_t0)
+tmp_plot_data[,"rank_abund"] <- ifelse(is.na(tmp_plot_data$rel_ab_T0),
+                                       tmp_plot_data$rel_ab_susp,
+                                       tmp_plot_data$rel_ab_T0+10)
+tmp_plot_data[,"T0"] <- ifelse(is.na(tmp_plot_data$rel_ab_T0),
+                                           "Not present in T0",
+                                           "Present in T0")
+
+
+
+# plot
+
+p <- ggplot(tmp_plot_data)+
+  geom_col(aes(x=reorder(OTU,rank_abund),
+               y=rel_ab_susp,
+               fill = T0))+
+  theme_classic() +
+  labs(x = "Most abundant OTUs",
+       y = "Relative abundance in PEB suspension")+
+  theme(axis.text.x  = element_text(vjust=0.5, size=10,angle = 0),
+        panel.grid.major.y = element_line(color = "white", size = 0.8))+ 
+  scale_fill_manual(name = "Presence in T0",
+                    values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")+
+  geom_vline(xintercept = nrow(tmp_plot_data)-
+               nrow(tmp_plot_data[complete.cases(tmp_plot_data),])+0.5,
+             lwd=0.5, color = "#FF6666")+
+  geom_hline(yintercept = c(0,0.2,0.4,0.6),
+             lwd=0.1, color = "#cccccc")+
+  coord_flip()
+
+
+p
+
+```
+
+## curve by broth & diversity
+I want 4 curve of the abundance of the OTU present in each suspensions in decreasing order of abundance regarding their rank abundance in original soil samples and in suspension
+
+```{r rank abundance curve in suspensions}
+
+# suspensions
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+
+tmp_global = tibble()
+
+for (i in 1:length(tmp_ttt)) {
+  
+  tmp_ps = ps_16S_susp
+  tmp_ps = prune_samples(tmp_ps@sam_data$treatment == tmp_ttt[i],tmp_ps)
+  tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+  
+  tmp_selected_otu = tibble("OTU"=taxa_names(tmp_ps),
+                            "taxa_sum_susp"=taxa_sums(tmp_ps))
+  tmp_selected_otu[,"rel_ab_susp"] = tmp_selected_otu$taxa_sum_susp /
+    sum(tmp_selected_otu$taxa_sum_susp)
+  
+  # calculate relabund in T0
+  tmp_ps = ps_16S_susp
+  tmp_ps = prune_samples(tmp_ps@sam_data$treatment == "T0",tmp_ps)
+  tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+  
+  tmp_otu_t0 = tibble("OTU"=taxa_names(tmp_ps),
+                      "taxa_sum_T0"=taxa_sums(tmp_ps))
+  tmp_otu_t0[,"rel_ab_T0"] = tmp_otu_t0$taxa_sum_T0 / sum(tmp_otu_t0$taxa_sum_T0) 
+  
+  # join data
+  tmp_plot_data <- left_join(tmp_selected_otu,tmp_otu_t0)
+  tmp_plot_data[,"rank_abund"] <- ifelse(is.na(tmp_plot_data$rel_ab_T0),
+                                         tmp_plot_data$rel_ab_susp,
+                                         tmp_plot_data$rel_ab_T0+10)
+  tmp_plot_data[,"T0"] <- ifelse(is.na(tmp_plot_data$rel_ab_T0),
+                                             "Not present in T0",
+                                             "Present in T0")
+  
+  
+  
+  # plot
+  
+  p <- ggplot(tmp_plot_data)+
+    geom_col(aes(x=reorder(OTU,rank_abund),
+                 #y=rel_ab_susp,
+                 #y=rel_ab_susp*10^5,
+                 fill = T0))+
+    theme_classic() +
+    labs(x = "Most abundant OTUs",
+         y = paste0("Relative abundance in ",tmp_ttt[i]))+
+    theme(axis.text.x  = element_text(vjust=0.5, size=10,angle = 0),
+          panel.grid.major.y = element_line(color = "white", size = 0.8))+ 
+    scale_fill_manual(name = "Presence in T0",
+                      values = c("#FF6666","#666666"))+
+    geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+               lwd=0.1, color = "#cccccc")+
+    geom_vline(xintercept = nrow(tmp_plot_data)-
+                 nrow(tmp_plot_data[complete.cases(tmp_plot_data),])+0.5,
+               lwd=0.5, color = "#FF6666")+
+    #geom_hline(yintercept = c(0,0.2,0.4,0.6),
+    #           lwd=0.1, color = "#cccccc")+
+    coord_flip()+
+    scale_y_log10()
+  
+  
+  p
+  
+  gdata::mv("p",paste0("plot_curve_",tmp_ttt[i]))
+  
+  # global df
+  tmp_df = tibble("susp"= rep(tmp_ttt[i],nrow(tmp_plot_data)),
+                  tmp_plot_data)
+  tmp_global= rbind(tmp_global,tmp_df)
+
+}
+
+plot_curve = list(plot_curve_susp_MAC_a1,plot_curve_susp_MAC_a2,
+                  plot_curve_susp_PEB_a1,plot_curve_susp_PEB_a2)
+
+rm(plot_curve_susp_MAC_a1,plot_curve_susp_MAC_a2,
+   plot_curve_susp_PEB_a1,plot_curve_susp_PEB_a2)
+
+```
+
+
+
+# OTUs impacted in coal & abund in susp
+which OTUs in susp are affected in outcome community?
+
+```{r OTU up & rank abundance in susp}
+
+# suspensions
+tmp_ttt = c("MAC_a1","MAC_a2","PEB_a1","PEB_a2")
+
+tmp_global = list()
+
+for (i in 1:length(tmp_ttt)) {
+  
+  # wrangle ps object
+  tmp_ps = ps_16S_susp
+  ## select suspension sample
+  tmp_ps = prune_samples(tmp_ps@sam_data$treatment == paste0("susp_",tmp_ttt[i]),tmp_ps)
+  tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+  
+  # calculate OTU relab as rank in susp
+  tmp_otus = tibble("OTU"=taxa_names(tmp_ps),
+                    "taxa_sum_susp"=taxa_sums(tmp_ps))
+  tmp_otus[,"rel_ab_susp"] = tmp_otus$taxa_sum_susp /
+    sum(tmp_otus$taxa_sum_susp)
+  
+  # select OTU diff ab in coal
+  ## select comparison with control
+  tmp_comp = stat_q2_otu_comparison_sum
+  tmp_comp = tmp_comp[complete.cases(tmp_comp),] # remove OTUs for which model didnt work
+  tmp_comp = tmp_comp[tmp_comp$g1 == "C",]
+  tmp_comp$pval_adjust <- tmp_comp$p.value *258 *12
+  ## select OTUs up in ttt
+  tmp_comp <- tmp_comp[tmp_comp$pval_adjust <= 0.05 & tmp_comp$estimate < 0,]
+  tmp_comp <- tmp_comp[tmp_comp$g2 %in% paste0(tmp_ttt[1],c("d1","d2","d3")),]
+  ## pivot wider
+  tmp_comp <- pivot_wider(tmp_comp[,c("OTU","g2","estimate")],
+                          names_from = g2,values_from = estimate)
+
+  # join data
+  tmp_data <- left_join(tmp_otus,tmp_comp,by = "OTU")
+  tmp_data[,"impacted"] <- apply(tmp_data[,4:6],1,function(x) sum(x,na.rm = T))
+  tmp_data[,"impacted"] <- ifelse(tmp_data$impacted != 0,"yes",no = "no")
+  
+  tmp_global[[i]] <- tmp_data
+    
+  
+}
+
+```
+
+```{r plot}
+
+# suspensions
+tmp_ttt = c("MAC_a1","MAC_a2","PEB_a1","PEB_a2")
+
+tmp_plot = list()
+
+for (i in 1:length(tmp_ttt)) {
+  
+  tmp_plot_data = tmp_global[[i]]
+  # plot
+  p <- ggplot(tmp_plot_data)+
+    geom_col(aes(x=reorder(OTU,desc(taxa_sum_susp)),
+                 y=taxa_sum_susp,
+                 fill = impacted))+
+    theme_classic() +
+    labs(x = "Most abundant OTUs",
+         y = paste0("Relative abundance in ",tmp_ttt[i]))+
+    theme(axis.text.x  = element_text(vjust=0.5, size=10,angle = 0),
+          panel.grid.major.y = element_line(color = "white", size = 0.8))+ 
+    scale_fill_manual(name = "Presence in T0",
+                      values = c("#666666","#FF6666"))+
+    geom_vline(xintercept = seq(10.5,nrow(tmp_plot_data),10),
+               lwd=0.1, color = "#cccccc")+
+    scale_y_log10()
+    
+  p
+  
+  tmp_plot[[i]] <- p
+  
+}
+
+```
+
+
+
+
+## boxplot
+
+```{r rank abundance boxplot in MAC suspension}
+
+##### 
+# wrangle data
+tmp_ps = ps_16S_susp
+tmp_ps = prune_samples(tmp_ps@sam_data$treatment %in% c("susp_MAC_a1","susp_MAC_a2"),tmp_ps)
+tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+
+tmp_selected_otu = tibble("OTU"=taxa_names(tmp_ps),
+                          "taxa_sum_susp"=taxa_sums(tmp_ps))
+tmp_selected_otu[,"rel_ab_susp"] = tmp_selected_otu$taxa_sum_susp / sum(tmp_selected_otu$taxa_sum_susp)
+
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+tmp_data = psmelt(tmp_ps)
+tmp_plot_data <- left_join(tmp_data[,c("OTU","Abundance")],tmp_selected_otu)
+
+# calculate relabund in T0
+tmp_ps = ps_16S_susp
+tmp_ps = prune_samples(tmp_ps@sam_data$treatment == "T0",tmp_ps)
+tmp_ps = prune_taxa(taxa_sums(tmp_ps)> 0,tmp_ps)
+
+tmp_otu_t0 = tibble("OTU"=taxa_names(tmp_ps),
+                    "taxa_sum_T0"=taxa_sums(tmp_ps))
+tmp_otu_t0[,"rel_ab_T0"] = tmp_otu_t0$taxa_sum_T0 / sum(tmp_otu_t0$taxa_sum_T0)
+
+
+# join data
+tmp_plot_data <- left_join(tmp_plot_data,tmp_otu_t0)
+tmp_plot_data[,"rank_abund"] <- ifelse(is.na(tmp_plot_data$rel_ab_T0),
+                                       tmp_plot_data$rel_ab_susp,
+                                       tmp_plot_data$rel_ab_T0+10)
+tmp_plot_data[,"T0"] <- ifelse(is.na(tmp_plot_data$rel_ab_T0),
+                                           "Not present in T0",
+                                           "Present in T0")
+
+
+#####
+# plot
+
+p <- ggplot(tmp_plot_data)+
+  geom_boxplot(aes(x=reorder(OTU,desc(rank_abund)),
+               y=Abundance,
+               #y=abs(1/log(rel_ab_susp)),
+               #y=rel_ab_susp*10^5,
+               fill = T0))+
+  theme_bw() +
+  labs(x = "Most abundant OTUs",
+       y = "Relative abundance in MAC suspension")+
+  theme(axis.text.x  = element_text(vjust=0.5, size=10,angle = 90),
+        panel.grid.major.x = element_line(color = "white", size = 0.8))+ 
+  scale_fill_manual(name = "Presence in T0",
+                    values = c("#FF6666","#666666"))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")+
+  geom_vline(xintercept = nrow(tmp_plot_data[complete.cases(tmp_plot_data),])+0.5,
+             lwd=0.5, color = "#FF6666")+ scale_y_log10()
+
+
+p
+
+```
+
+# itol
+
+## OTU in susp
+
+```{r write tree}
+library(ape)
+
+tmp_ps = ps_16S_susp
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment %in% tmp_ttt,tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) > 0, tmp_ps)
+
+#tmp_OTUs_in_susp = taxa_names(tmp_ps)
+
+tmp_tree = tmp_ps@phy_tree
+
+write.tree(tmp_tree,"iToL/tmp_itol_tree.tre")
+
+
+```
+
+```{r multibar abund all susp}
+
+tmp_ps = ps_16S_susp
+## calculate relative abundance
+tmp_ps = transform_sample_counts(tmp_ps, function(x) x / sum(x, na.rm = T))
+# merge samples by treatment
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+
+# create final df
+tmp_data <- tmp_ps@otu_table@.Data
+tmp_data <- t(tmp_data)
+
+tmp_data = tibble("OTU"=rownames(tmp_data),
+                  #"T0"= (tmp_data[,"T0"]),
+                  "susp_C"= (tmp_data[,"susp_C"]),
+                  "susp_MAC_a1"= (tmp_data[,"susp_MAC_a1"]),
+                  "susp_MAC_a2"= (tmp_data[,"susp_MAC_a2"]),
+                  "susp_PEB_a1"= (tmp_data[,"susp_PEB_a1"]),
+                  "susp_PEB_a2"= (tmp_data[,"susp_PEB_a2"]))
+
+# convert to quantile 
+tmp_quantiles = tmp_data %>% 
+  mutate_at(
+    vars(one_of( "susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")),
+    funs(case_when(
+      . == 0 ~ 0,
+      . > 0 & . <= quantile(.[. > 0],0.1) ~ 1/10,
+      . > quantile(.[. > 0],0.1) & . <= quantile(.[. > 0],0.2) ~ 2/10,
+      . > quantile(.[. > 0],0.2) & . <= quantile(.[. > 0],0.3) ~ 3/10,
+      . > quantile(.[. > 0],0.3) & . <= quantile(.[. > 0],0.4) ~ 4/10,
+      . > quantile(.[. > 0],0.4) & . <= quantile(.[. > 0],0.5) ~ 5/10,
+      . > quantile(.[. > 0],0.5) & . <= quantile(.[. > 0],0.6) ~ 6/10,
+      . > quantile(.[. > 0],0.6) & . <= quantile(.[. > 0],0.7) ~ 7/10,
+      . > quantile(.[. > 0],0.7) & . <= quantile(.[. > 0],0.8) ~ 8/10,
+      . > quantile(.[. > 0],0.8) & . <= quantile(.[. > 0],0.9) ~ 9/10,
+      . > quantile(.[. > 0],0.9) ~ 10/10
+      ))) %>%
+  filter(OTU %in% taxa_names(ps_16S_fltr)) 
+
+# convert to quantile 
+tmp_quantiles = tmp_data %>% 
+  mutate_at(
+    vars(one_of( "susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")),
+    funs(case_when(
+      . == 0 ~ 0,
+      . > 0 & . <= quantile(.[. > 0],0.25) ~ 1/4,
+      . > quantile(.[. > 0],0.25) & . <= quantile(.[. > 0],0.50) ~ 2/4,
+      . > quantile(.[. > 0],0.50) & . <= quantile(.[. > 0],0.75) ~ 3/4,
+      . > quantile(.[. > 0],0.75) ~ 4/4
+      ))) %>%
+  filter(OTU %in% taxa_names(ps_16S_fltr)) 
+
+# select OTU in microcosm
+tmp_itol = tibble("OTU"=taxa_names(ps_16S_fltr)) %>%
+  left_join(.,tmp_quantiles) %>%
+  dplyr::select(OTU,susp_C,susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2)
+# replace NAs
+tmp_itol[is.na(tmp_itol)] <- 0
+  
+# extract data
+write.csv(tmp_itol,"tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+
+```
+
+
+```{r multibar abund all susp + T0}
+
+tmp_ps = ps_16S_susp
+
+# merge samples by treatment
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+
+# create final df
+tmp_data <- tmp_ps@otu_table@.Data
+tmp_data <- t(tmp_data)
+
+tmp_data = tibble("OTU"=rownames(tmp_data),
+                  "T0"= (tmp_data[,"T0"]),
+                  "susp_C"= (tmp_data[,"susp_C"]),
+                  "susp_MAC_a1"= (tmp_data[,"susp_MAC_a1"]),
+                  "susp_MAC_a2"= (tmp_data[,"susp_MAC_a2"]),
+                  "susp_PEB_a1"= (tmp_data[,"susp_PEB_a1"]),
+                  "susp_PEB_a2"= (tmp_data[,"susp_PEB_a2"]))
+
+# relabund
+tmp_itol = tibble("OTU"=tmp_data$OTU,
+                  "T0"= tmp_data$T0 / sum(tmp_data$T0),
+                  "susp_C"= tmp_data$susp_C / sum(tmp_data$susp_C),
+                  "susp_MAC_a1"= tmp_data$susp_MAC_a1 / sum(tmp_data$susp_MAC_a1),
+                  "susp_MAC_a2"= tmp_data$susp_MAC_a2 / sum(tmp_data$susp_MAC_a2),
+                  "susp_PEB_a1"= tmp_data$susp_PEB_a1 / sum(tmp_data$susp_PEB_a1),
+                  "susp_PEB_a2"= tmp_data$susp_PEB_a2 / sum(tmp_data$susp_PEB_a2))
+
+
+# subset OTU
+tmp_ps = ps_16S_susp
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment %in% tmp_ttt,tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) > 0, tmp_ps)
+
+tmp_itol <- tmp_itol[tmp_itol$OTU %in% taxa_names(tmp_ps),]
+
+# extract data
+write.csv(tmp_itol,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+
+```
+
+```{r multibar abund manipulated susp}
+
+tmp_ps = ps_16S_susp
+
+# merge samples by treatment
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+
+# create final df
+tmp_data <- tmp_ps@otu_table@.Data
+tmp_data <- t(tmp_data)
+
+tmp_data = tibble("OTU"=rownames(tmp_data),
+                  "susp_MAC_a1"= (tmp_data[,"susp_MAC_a1"]),
+                  "susp_MAC_a2"= (tmp_data[,"susp_MAC_a2"]),
+                  "susp_PEB_a1"= (tmp_data[,"susp_PEB_a1"]),
+                  "susp_PEB_a2"= (tmp_data[,"susp_PEB_a2"]))
+
+# relabund
+tmp_itol = tibble("OTU"=tmp_data$OTU,
+                  "susp_MAC_a1"= tmp_data$susp_MAC_a1 / sum(tmp_data$susp_MAC_a1),
+                  "susp_MAC_a2"= tmp_data$susp_MAC_a2 / sum(tmp_data$susp_MAC_a2),
+                  "susp_PEB_a1"= tmp_data$susp_PEB_a1 / sum(tmp_data$susp_PEB_a1),
+                  "susp_PEB_a2"= tmp_data$susp_PEB_a2 / sum(tmp_data$susp_PEB_a2))
+
+
+# subset OTU
+tmp_ps = ps_16S_susp
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment %in% tmp_ttt,tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) > 0, tmp_ps)
+
+tmp_itol <- tmp_itol[tmp_itol$OTU %in% taxa_names(tmp_ps),]
+
+# extract data
+write.csv(tmp_itol,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+
+```
+
+```{r multibar abund C susp + T0 }
+
+tmp_ps = ps_16S_susp
+
+# merge samples by treatment
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+
+# create final df
+tmp_data <- tmp_ps@otu_table@.Data
+tmp_data <- t(tmp_data)
+
+tmp_data = tibble("OTU"=rownames(tmp_data),
+                  "T0"= (tmp_data[,"T0"]),
+                  "susp_C"= (tmp_data[,"susp_C"]))
+
+# relabund
+tmp_itol = tibble("OTU"=tmp_data$OTU,
+                  "T0"= tmp_data$T0 / sum(tmp_data$T0),
+                  "susp_C"= tmp_data$susp_C / sum(tmp_data$susp_C))
+
+# subset OTU
+tmp_ps = ps_16S_susp
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment %in% tmp_ttt,tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) > 0, tmp_ps)
+
+tmp_itol <- tmp_itol[tmp_itol$OTU %in% taxa_names(tmp_ps),]
+
+# rank 
+tmp_itol = tibble("OTU"=tmp_itol$OTU,
+                  "T0"= rank(tmp_itol$T0,ties.method = "random"),
+                  "susp_C"= rank(tmp_itol$susp_C,ties.method = "random"))
+
+
+# extract data
+write.csv(tmp_itol,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+
+```
+
+## itol all OTU
+
+```{r write tree}
+library(ape)
+
+tmp_tree = ps_16S_susp@phy_tree
+
+write.tree(tmp_tree,"iToL/tmp_itol_tree.tre")
+
+
+```
+
+```{r write tree: taxo}
+
+#####
+# select same color than for microcosm itol
+tmp_ps = ps_16S_fltr
+
+# extract taxo table
+tmp_taxtab = tibble("OTU"=taxa_names(tmp_ps),
+                    "Kingdom"=str_remove(tmp_ps@tax_table@.Data[,"Kingdom"],"[D]_[0123456789]__"),
+                    "Phylum"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "class"=str_remove(tmp_ps@tax_table@.Data[,"Class"],"[D]_[0123456789]__"),
+                    "taxa"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "Abundance" = as.numeric(taxa_sums(tmp_ps)))
+
+# wrangle taxo
+## change unclassified by "Unknown"
+tmp_taxtab[is.na(tmp_taxtab)] <- "Unknown"
+## put class for proteo
+tmp_taxtab$taxa[tmp_taxtab$Phylum == "Proteobacteria"] <- tmp_taxtab$class[tmp_taxtab$Phylum == "Proteobacteria"]
+## select most abundant taxa
+tmp_most_abund = tmp_taxtab %>% group_by(taxa) %>% summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$taxa[order(tmp_most_abund$sum, decreasing = TRUE)[1:14]]
+tmp_most_abund
+##change rare taxa by "Others"
+tmp_taxtab$taxa[!(tmp_taxtab$taxa %in% c(tmp_most_abund,"Unknown"))] <- "Others"
+
+# add color
+## select taxa colors and order 
+tmp_color <- Colors_16p
+tmp_color[,"taxa"] <- c(tmp_most_abund[order(tmp_most_abund)],"Others","Unknown")
+
+
+#####
+# select all OTU tax table
+tmp_ps = ps_16S_susp
+# extract taxo table
+tmp_taxtab = tibble("OTU"=taxa_names(tmp_ps),
+                    "Kingdom"=str_remove(tmp_ps@tax_table@.Data[,"Kingdom"],"[D]_[0123456789]__"),
+                    "Phylum"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "class"=str_remove(tmp_ps@tax_table@.Data[,"Class"],"[D]_[0123456789]__"),
+                    "taxa"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "Abundance" = as.numeric(taxa_sums(tmp_ps)))
+
+# wrangle taxo
+## change unclassified by "Unknown"
+tmp_taxtab[is.na(tmp_taxtab)] <- "Unknown" # here the NA are for Archaea
+## put class for proteo
+tmp_taxtab$taxa[tmp_taxtab$Phylum == "Proteobacteria"] <- tmp_taxtab$class[tmp_taxtab$Phylum == "Proteobacteria"]
+##change rare taxa by "Others"
+tmp_taxtab$taxa[!(tmp_taxtab$taxa %in% c(tmp_most_abund,"Unknown"))] <- "Others"
+
+# add color
+## add taxa color and order
+tmp_data = tmp_taxtab[,c("OTU","taxa")]
+tmp_data <- left_join(tmp_data,tmp_color, by = "taxa")
+
+# wrangle final df
+tmp_data[,"range"] <- rep("range", nrow(tmp_data))
+tmp_data <- tmp_data[,c("OTU","range","color","taxa")]
+
+write.csv(tmp_data,"iTOL/tmp_itol_tree_taxo.csv",row.names = F,quote = F)
+
+```
+
+```{r multibar abund}
+
+tmp_ps = ps_16S_susp
+
+# merge samples by treatment
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+
+# create final df
+tmp_data <- tmp_ps@otu_table@.Data
+tmp_data <- t(tmp_data)
+
+tmp_itol = tibble("OTU"=rownames(tmp_data),
+                  "T0"= log(tmp_data[,"T0"]),
+                  "susp_C"= log(tmp_data[,"susp_C"]),
+                  "susp_MAC_a1"= log(tmp_data[,"susp_MAC_a1"]),
+                  "susp_MAC_a2"= log(tmp_data[,"susp_MAC_a2"]),
+                  "susp_PEB_a1"= log(tmp_data[,"susp_PEB_a1"]),
+                  "susp_PEB_a2"= log(tmp_data[,"susp_PEB_a2"]))
+tmp_itol[tmp_itol == -Inf] <- 0
+
+# extract data
+write.csv(tmp_itol,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+
+```
+
+
+## itol 258 most abund in microcosm
+
+i want to see which OTUs among the 258 most abundant in microcosms are present in suspensions
+
+```{r}
+
+tmp_OTUs = taxa_names(ps_16S_fltr)
+
+tmp_ps = ps_16S_susp
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+tmp_ps <- prune_taxa(taxa_names(tmp_ps) %in% tmp_OTUs, tmp_ps)
+
+# select data
+tmp_psmelt = psmelt(tmp_ps)  
+tmp_data = tibble("OTU"= tmp_psmelt$OTU,
+                  "treatment"= tmp_psmelt$Sample,
+                  "abund"= tmp_psmelt$Abundance)
+
+# replace >0 by 1
+tmp_data$abund[tmp_data$abund > 0] <- 1
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = treatment, values_from = abund)
+tmp_data <- tmp_data[,c("OTU","susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")]
+
+# extrcat data
+#write.csv(tmp_data,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+
+```
+
+i want to see the relative abundance of OTUs in susp among the 258 most abundant in microcosms
+
+```{r}
+
+tmp_OTUs = taxa_names(ps_16S_fltr)
+
+tmp_ps = ps_16S_susp
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+tmp_ps <- transform_sample_counts(tmp_ps,fun = function(x) x/sum(x))
+tmp_ps <- prune_taxa(taxa_names(tmp_ps) %in% tmp_OTUs, tmp_ps)
+
+# select data
+tmp_psmelt = psmelt(tmp_ps)  
+tmp_data = tibble("OTU"= tmp_psmelt$OTU,
+                  "treatment"= tmp_psmelt$Sample,
+                  "abund"= tmp_psmelt$Abundance)
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = treatment, values_from = abund)
+tmp_data <- tmp_data[,c("OTU","susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")]
+
+# extrcat data
+#write.csv(tmp_data,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+
+```
+
+
+
+## itol without control
+
+```{r wrangle ps object}
+# suspensions_wout_control
+
+tmp_ps0 = ps_16S_susp
+
+tmp_ttt = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+
+tmp_ps1 = prune_samples(tmp_ps0@sam_data$treatment %in% tmp_ttt, tmp_ps0 )
+tmp_ps1 <- prune_taxa(taxa_sums(tmp_ps1) > 0, tmp_ps1)
+
+```
+
+```{r write tree}
+library(ape)
+
+tmp_tree = tmp_ps1@phy_tree
+
+write.tree(tmp_tree,"iToL/tmp_itol_tree.tre")
+
+
+```
+
+```{r write tree: taxo}
+
+# extract taxo table
+tmp_taxtab = tibble("OTU"=taxa_names(tmp_ps1),
+                    "Kingdom"=str_remove(tmp_ps1@tax_table@.Data[,"Kingdom"],"[D]_[0123456789]__"),
+                    "Phylum"=str_remove(tmp_ps1@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "class"=str_remove(tmp_ps1@tax_table@.Data[,"Class"],"[D]_[0123456789]__"),
+                    "taxa"=str_remove(tmp_ps1@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "Abundance" = as.numeric(taxa_sums(tmp_ps1)))
+
+# wrangle taxo
+## change unclassified by "Unknown"
+tmp_taxtab[is.na(tmp_taxtab)] <- "Unknwon Archaea" # here the NA are for Archaea
+## put class for proteo
+tmp_taxtab$taxa[tmp_taxtab$Phylum == "Proteobacteria"] <- tmp_taxtab$class[tmp_taxtab$Phylum == "Proteobacteria"]
+## select most abundant taxa
+tmp_most_abund = tmp_taxtab %>% group_by(taxa) %>% summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$taxa[order(tmp_most_abund$sum, decreasing = TRUE)[1:14]]
+tmp_most_abund
+##change rare taxa by "Others"
+tmp_taxtab$taxa[!(tmp_taxtab$taxa %in% c(tmp_most_abund,"Unknown"))] <- "Others"
+
+# add color
+## select taxa colors and order 
+tmp_color <- Colors_16p
+tmp_color[,"taxa"] <- c(tmp_most_abund[order(tmp_most_abund)],"Others","Unknown")
+## add taxa color and order
+tmp_data = tmp_taxtab[,c("OTU","taxa")]
+tmp_data <- left_join(tmp_data,tmp_color, by = "taxa")
+
+# wrangle final df
+tmp_data[,"range"] <- rep("range", nrow(tmp_data))
+tmp_data <- tmp_data[,c("OTU","range","color","taxa")]
+
+write.csv(tmp_data,"iTOL/tmp_itol_tree_taxo.csv",row.names = F,quote = F)
+
+
+```
+
+```{r write tree: OTU abundance in suspensions}
+
+tmp_otu = taxa_names(tmp_ps1)
+
+# wrangle ps object
+## aggregate by treatment
+tmp_ps <- merge_samples(tmp_ps0,tmp_ps0@sam_data$treatment)
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+
+# select data
+tmp_psmelt = psmelt(tmp_ps)  
+tmp_data = tibble("OTU"= tmp_psmelt$OTU[tmp_psmelt$OTU %in% tmp_otu],
+                  "treatment"= tmp_psmelt$Sample[tmp_psmelt$OTU %in% tmp_otu],
+                  "rel_abund"= tmp_psmelt$Abundance[tmp_psmelt$OTU %in% tmp_otu])
+
+# replace 0 by -1 for heatmap
+tmp_data$rel_abund[tmp_data$rel_abund == 0] <- -0.1
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = treatment, values_from = rel_abund)
+tmp_data <- tmp_data[,c("OTU","T0","susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")]
+
+# extrcat data
+write.csv(tmp_data,"iTOL/tmp_itol_tree_rel_abund.csv",row.names = F,quote = F)
+
+
+```
+
+
+```{r write tree: OTU presence/absence in suspensions}
+
+tmp_otu = taxa_names(tmp_ps1)
+
+# wrangle ps object
+## aggregate by treatment
+tmp_ps <- merge_samples(tmp_ps0,tmp_ps0@sam_data$treatment)
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+
+# select data
+tmp_psmelt = psmelt(tmp_ps)  
+tmp_data = tibble("OTU"= tmp_psmelt$OTU[tmp_psmelt$OTU %in% tmp_otu],
+                  "treatment"= tmp_psmelt$Sample[tmp_psmelt$OTU %in% tmp_otu],
+                  "rel_abund"= tmp_psmelt$Abundance[tmp_psmelt$OTU %in% tmp_otu])
+
+# replace >0 by 1
+tmp_data$rel_abund[tmp_data$rel_abund > 0] <- 1
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = treatment, values_from = rel_abund)
+tmp_data <- tmp_data[,c("OTU","T0","susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")]
+
+# extrcat data
+write.csv(tmp_data,"iTOL/tmp_itol_tree_pres_abs.csv",row.names = F,quote = F)
+
+
+```
+
+# BETA DIV
+
+```{r select data}
+
+tmp_ps0 = ps_16S
+
+tmp_sample_type = "suspension"
+#tmp_sample_type = "modif_susp"
+
+tmp_ps = ps_16S_susp
+tmp_C = "susp_C"
+
+#{r calculate distance matrix and ordination}
+
+# rarefy dataset
+set.seed(8000)
+tmp_ps = rarefy_even_depth(tmp_ps,rngseed = T)
+# choose distance index
+tmp_index = "wunifrac"
+# calculate distances
+tmp_dist = distance(tmp_ps,tmp_index)
+# calculate ordination
+tmp_ordin = ordinate(tmp_ps, "PCoA", distance = tmp_dist)
+
+
+```
+
+```{r 2D, width = 16,height = 12 }
+
+# select samples coordinates for ordination plot
+tmp_data_2D <- tibble("sample" = as.numeric(rownames(tmp_ordin[["vectors"]])),
+                      "x" = tmp_ordin[["vectors"]][,1],
+                      "y" = tmp_ordin[["vectors"]][,2])
+# select axis titles
+tmp_x_lab = round(tmp_ordin[["values"]][["Relative_eig"]][1]*100,2)
+tmp_x_lab <- paste0("Axis 1: ",tmp_x_lab," %")
+tmp_y_lab = round(tmp_ordin[["values"]][["Relative_eig"]][2]*100,2)
+tmp_y_lab <- paste0("Axis 2: ",tmp_y_lab," %")
+# add treatment, color, order, shape, etc
+tmp_data_2D <- left_join(tmp_data_2D,tmp_ps@sam_data[,c("sample","treatment")], by = "sample")
+tmp_data_2D <- left_join(tmp_data_2D,Colors_treatments,by = "treatment")
+tmp_data_2D <- tmp_data_2D %>% arrange(sample)
+## change shape
+tmp_data_2D$shape <- 21
+
+tmp_plot_title = paste0("PCOA_",tmp_index,"_",tmp_sample_type)
+
+### plot
+p = ggplot(tmp_data_2D)+
+  aes(x=x,y=y) +
+  geom_point(shape = tmp_data_2D$shape,
+             size = 3,
+             fill = tmp_data_2D$color) +
+  scale_fill_manual(labels = levels(reorder(tmp_data_2D$treatment,tmp_data_2D$order)),
+                    values = levels(reorder(tmp_data_2D$color,tmp_data_2D$order))) +
+  scale_shape_identity() + 
+  theme_bw() +
+  labs(title = tmp_plot_title,x =  paste0("\n",tmp_x_lab), 
+       y = paste0("\n",tmp_y_lab))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "none",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  guides(fill = guide_legend(override.aes = list(shape = 21,
+                                                 size =12),
+                             title = "Legend",
+                             ncol = 3),
+         size = "none")
+p
+
+
+fig_div[[paste0(tmp_sample_type,"_",tmp_index)]] <- p
+
+
+```
+
+```{r select distances from the control}
+
+library(reshape2)
+
+# wrangle distance matrix into a longer dataframe
+tmp_dist_matrix = melt(as.matrix(tmp_dist))
+# remove self-comparisons
+tmp_dist_matrix = tmp_dist_matrix[tmp_dist_matrix$Var1 != tmp_dist_matrix$Var2,]
+# select sample data
+tmp_sam_data = tibble("sample"=as.numeric(tmp_ps@sam_data$sample),
+                      "treatment"=tmp_ps@sam_data$treatment)
+# combined distance matrix with sample data
+colnames(tmp_sam_data) = c("Var1", "treatment1")
+tmp_data <- left_join(tmp_dist_matrix, tmp_sam_data, by = "Var1")
+colnames(tmp_sam_data) = c("Var2", "treatment2")
+tmp_data <- left_join(tmp_data, tmp_sam_data, by = "Var2")
+# select distances from the control
+tmp_data <- tmp_data[tmp_data$treatment1 == tmp_C,]
+
+if (tmp_sample_type == "modif_susp"){
+  tmp_data <- tmp_data[!tmp_data$treatment2 %in% c("T0","susp_C"),]
+}
+
+```
+
+```{r statistic test}
+
+if (tmp_sample_type == "suspension") {
+  tmp_value_t0 = tmp_data$value[tmp_data$treatment2 =="T0"]
+  tmp_ttts <- unique(tmp_data$treatment2)
+  tmp_ttts <- tmp_ttts[tmp_ttts != "T0"]
+  tmp_t.test = vector()
+  tmp_names = vector()
+  for (tmp_ttt in tmp_ttts) { #tmp_ttt = tmp_ttts[1]
+    # values
+    tmp_value_ttt = tmp_data$value[tmp_data$treatment2 == tmp_ttt]
+    # t-test
+    tmp = t.test(tmp_value_t0,tmp_value_ttt)
+    # extract p.value
+    tmp_t.test[length(tmp_t.test)+1] <- tmp$p.value
+    tmp_names[length(tmp_names)+1] = paste0("T0-",tmp_ttt)
+  }
+  tmp_p.adjust = tmp_t.test*length(tmp_t.test) # bonferroni correction
+  ## letters
+  names(tmp_p.adjust) <- tmp_names
+  tmp_p.adjust
+  tmp_p.adjust <= 0.05
+  # tibble with statistical groups
+  tmp_stat = tmp_data %>% 
+    dplyr::group_by(treatment=treatment2) %>% 
+    dplyr::summarise(mean=mean(value))
+  tmp_stat[,"stat_groups"]= c(ifelse(tmp_p.adjust <= 0.05,
+                                   "*",""),"")
+}
+
+library(agricolae)
+if (tmp_sample_type == "modif_susp") {
+  
+  # linear model
+  tmp_lm = lm(tmp_data$value ~ tmp_data$treatment2, na.action = na.omit )
+  summary(tmp_lm)
+  # anova
+  anova(tmp_lm)
+  tmp_aov = aov(tmp_lm)
+  summary(tmp_aov)
+  # post hoc Tukey test
+  tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+  # tibble with statistical groups
+  tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                    "mean"=tmp_comp[["groups"]][["tmp_data$value"]],
+                    "stat_groups"=tmp_comp[["groups"]][["groups"]])
+}
+
+
+```
+
+```{r barplot, width = 5.5,height = 6}
+
+library(Rmisc)
+
+tmp_plot_data = tmp_data
+tmp_plot_data = tibble("treatment" = tmp_plot_data$treatment2,
+                       "sample" = tmp_plot_data$Var2,
+                       "value"=tmp_plot_data$value)
+tmp_plot_data = left_join(tmp_plot_data,Colors_treatments,by="treatment")
+tmp_plot_stat = left_join(tmp_stat,Colors_treatments,by="treatment")
+
+tmp_plot_title = "16S_betadiv_microcosm"
+tmp_y_lim = c(0,max(tmp_data$value)*1.2)
+tmp_plot_stat[,"stat_y"] = max(tmp_data$value)*1.1
+
+
+### plot
+
+p <- ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               linetype = 1,
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  labs(x="Treatment", y= paste0("\n",tmp_index,"Distances"), title = tmp_plot_title, color = "#333333")+
+  coord_flip(ylim = tmp_y_lim)+
+  #scale_y_continuous(expand = c(0,0))+
+  theme_bw()+
+  theme(title = element_text(face="bold", size=12),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=10), 
+        axis.text.x  = element_text(vjust=0.5, size=8,angle = 0),
+        axis.title.y = element_text(face="bold", size=10), 
+        axis.text.y  = element_text(vjust=0.5, size=8),
+        strip.text = element_text(face="bold", size=8),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  stat_summary(geom = "linerange", fun.data = mean_se, width=0.5,color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            mapping = aes(label = stat_groups,y = stat_y,x=treatment),
+            colour="#333333", size=8,inherit.aes = F, angle = 0,
+            position = position_nudge(x = -0.225))
+  
+p
+
+fig_div[[paste0(tmp_sample_type,"_",tmp_index,"_distance_tukey")]] <- p
+
+
+```

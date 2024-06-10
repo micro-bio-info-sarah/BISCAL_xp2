@@ -1,0 +1,1294 @@
+---
+title: "Statistical Analysis of Diversity Metrics"
+author: "Sarah HUET"
+date: '2023-05-17'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(readr)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(agricolae)
+library(vegan)
+library(pairwiseAdonis)
+library(multcompView)
+library(stringi)
+
+
+# load work space data
+load(".RData")
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# Dataset overview
+
+Both $\alpha$-diversity (i.e., observed species, Simpson’s reciprocal and Faith’s Phylogenetic Diversity PD, see Faith, 1992) and $\beta$-diversity metrics (i.e., weighted Unifrac distances between samples, see Lozupone et al., 2011) were calculated based on rarefied OTU table (8000 sequences per sample).
+
+## $\alpha$-diversity metrics
+
+$\alpha$-diversity indexes were calculated with an home made Qiime pipeline implemented in Python, available on request. Here, we load the resulting dataframe.
+
+```{r load_alpha_diversity_table}
+
+alphadiv_all <- read.csv("Data/alphadiv_all.csv")
+
+```
+
+## $\beta$-diversity
+
+These chunks produce the supplementary figure 1b and c.
+
+```{r calculate_w_unifrac }
+
+# choose data
+tmp_ps = ps_16S
+
+# calculate distance matrix and ordination
+## rarefy dataset
+set.seed(8000)
+tmp_ps = rarefy_even_depth(tmp_ps,rngseed = T)
+## calculate distances
+tmp_dist = distance(tmp_ps,"wunifrac")
+## calculate ordination
+tmp_ordin = ordinate(tmp_ps, "PCoA", distance = tmp_dist)
+
+# select distances from the original soil samples
+## wrangle distance matrix into a longer data frame
+tmp_dist_matrix = melt(as.matrix(tmp_dist))
+## remove sample self-comparisons
+tmp_dist_matrix = tmp_dist_matrix[tmp_dist_matrix$Var1 != tmp_dist_matrix$Var2,]
+## select sample data
+tmp_sam_data = tibble("sample"=as.numeric(tmp_ps@sam_data$sample),
+                      "treatment"=tmp_ps@sam_data$treatment)
+## combined distance matrix with sample data
+colnames(tmp_sam_data) = c("Var1", "treatment1")
+tmp_data <- left_join(tmp_dist_matrix, tmp_sam_data, by = "Var1")
+colnames(tmp_sam_data) = c("Var2", "treatment2")
+tmp_data <- left_join(tmp_data, tmp_sam_data, by = "Var2")
+## select distances from the original soil samples
+tmp_data <- tmp_data[tmp_data$treatment1 == "T0",]
+
+```
+
+```{r test_stat}
+
+# select distances between original soil samples
+tmp_value_t0 = tmp_data$value[tmp_data$treatment2 =="T0"]
+# empty data frame for loop
+tmp_stat = tibble()
+# loop
+for (tmp_ttt in unique(tmp_data$treatment2)) {
+  # select distances for a treatment
+  tmp_value_ttt = tmp_data$value[tmp_data$treatment2 == tmp_ttt]
+  # Welch's t-test
+  tmp = t.test(tmp_value_t0,tmp_value_ttt)
+  # extract p.value
+  tmp_df = tibble("treatment"=tmp_ttt,
+                  "pval"=tmp$p.value)
+  tmp_stat <- rbind(tmp_stat,tmp_df)
+}
+# apply a Bonferroni correction
+tmp_stat[,"pval_adj"] <- p.adjust(tmp_stat$pval,method = "bonferroni")
+# add an asterisk if significant
+tmp_stat[,"stat_groups"] <- ifelse(tmp_stat$pval_adj <= 0.05,"*","")
+
+```
+
+```{r plot_distance_to_T0}
+
+# wrangle data
+tmp_plot_data = tibble("treatment" = tmp_data$treatment2,
+                       "sample" = tmp_data$Var2,
+                       "value"=tmp_data$value)
+# add treatment color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_plot_data = left_join(tmp_plot_data,tmp_colors,by="treatment")
+tmp_plot_stat = left_join(tmp_stat,tmp_colors,by="treatment")
+
+### plot
+ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               linetype = 1,
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  coord_flip(ylim = c(0,0.4))+
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            mapping = aes(label = stat_groups,y = 0.4,x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  labs(x="Treatment", y= "Distance to original soil samples", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+
+```
+
+```{r plot_PCoA}
+
+# select samples coordinates for ordination plot
+tmp_data_2D <- tibble("sample" = as.numeric(rownames(tmp_ordin[["vectors"]])),
+                      "x" = tmp_ordin[["vectors"]][,1],
+                      "y" = tmp_ordin[["vectors"]][,2])
+# select axis titles
+tmp_x_lab = round(tmp_ordin[["values"]][["Relative_eig"]][1]*100,2)
+tmp_x_lab <- paste0("Axis 1: ",tmp_x_lab," %")
+tmp_y_lab = round(tmp_ordin[["values"]][["Relative_eig"]][2]*100,2)
+tmp_y_lab <- paste0("Axis 2: ",tmp_y_lab," %")
+# add treatment, color & order
+tmp_data_2D <- left_join(tmp_data_2D,tmp_ps@sam_data[,c("sample","treatment")], by = "sample")
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data_2D <- left_join(tmp_data_2D,tmp_colors,by = "treatment")
+
+# select data for control ellipse
+tmp_data_ellipse = tmp_data_2D[tmp_data_2D$treatment == "C",]
+
+### plot
+# plot
+ggplot(tmp_data_2D)+
+  aes(x=x,y=y) +
+  geom_point(shape = 21,size = 3, fill = tmp_data_2D$color) +
+  stat_ellipse(data = tmp_data_ellipse, colour = unique(tmp_data_ellipse$color),size=2) +
+  scale_fill_manual(labels = levels(reorder(tmp_data_2D$treatment,tmp_data_2D$order)),
+                    values = levels(reorder(tmp_data_2D$color,tmp_data_2D$order))) +
+  labs(x =  paste0("\n",tmp_x_lab), 
+       y = paste0("\n",tmp_y_lab)) +
+  theme_bw() +
+  theme(axis.title = element_text(face="bold", size=12))
+
+```
+
+# Suspension $\alpha$- and $\beta$-diversity
+
+The $\alpha$- and $\beta$-diversity indices of the suspensions were first analyzed by using Welch’s t-tests and Bonferroni p-value correction to compare each suspension (n=3) to the original soil (n=10). Then, the manipulated suspensions were compared among each other using the same approach as for the coalesced communities described as follows (Equation 1).
+
+## $\alpha$-diversity
+
+### Comparison of each suspension to the original soil
+
+```{r observed_species}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = c(sample_names(ps_16S_T0),sample_names(ps_16S_susp))
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(observed_species))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# WELCH'S T-TEST
+## select values for original soil samples
+tmp_value_t0 = tmp_data$value[tmp_data$treatment =="T0"]
+## empty data frame for loop
+tmp_stat = tibble()
+# loop
+for (tmp_ttt in unique(tmp_data$treatment)) {
+  # select distances for a treatment
+  tmp_value_ttt = tmp_data$value[tmp_data$treatment == tmp_ttt]
+  # Welch's t-test
+  tmp = t.test(tmp_value_t0,tmp_value_ttt)
+  # extract p.value
+  tmp_df = tibble("treatment"=tmp_ttt,
+                  "pval"=tmp$p.value)
+  tmp_stat <- rbind(tmp_stat,tmp_df)
+}
+# apply a Bonferroni correction
+tmp_stat[,"pval_adj"] <- p.adjust(tmp_stat$pval,method = "bonferroni")
+# add an asterisk if significant
+tmp_stat[,"stat_groups"] <- ifelse(tmp_stat$pval_adj <= 0.05,"*","")
+tmp_stat
+
+# PLOT
+tmp_p1 <- 
+  ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 1800, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  labs(x="Treatment", y= "Observed species", color = "#333333")+
+  coord_flip(ylim = c(0,2000))+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+
+```
+
+```{r PD_whole_tree}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = c(sample_names(ps_16S_T0),sample_names(ps_16S_susp))
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(PD_whole_tree))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# WELCH'S T-TEST
+## select values for original soil samples
+tmp_value_t0 = tmp_data$value[tmp_data$treatment =="T0"]
+## empty data frame for loop
+tmp_stat = tibble()
+# loop
+for (tmp_ttt in unique(tmp_data$treatment)) {
+  # select distances for a treatment
+  tmp_value_ttt = tmp_data$value[tmp_data$treatment == tmp_ttt]
+  # Welch's t-test
+  tmp = t.test(tmp_value_t0,tmp_value_ttt)
+  # extract p.value
+  tmp_df = tibble("treatment"=tmp_ttt,
+                  "pval"=tmp$p.value)
+  tmp_stat <- rbind(tmp_stat,tmp_df)
+}
+# apply a Bonferroni correction
+tmp_stat[,"pval_adj"] <- p.adjust(tmp_stat$pval,method = "bonferroni")
+# add an asterisk if significant
+tmp_stat[,"stat_groups"] <- ifelse(tmp_stat$pval_adj <= 0.05,"*","")
+tmp_stat
+
+# PLOT
+ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 155, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  labs(x="Treatment", y= "PD Whole Tree", color = "#333333")+
+  coord_flip(ylim = c(0,175))+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+
+```
+
+```{r simpson_reciprocal}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = c(sample_names(ps_16S_T0),sample_names(ps_16S_susp))
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(simpson_reciprocal))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# WELCH'S T-TEST
+## select values for original soil samples
+tmp_value_t0 = tmp_data$value[tmp_data$treatment =="T0"]
+## empty data frame for loop
+tmp_stat = tibble()
+# loop
+for (tmp_ttt in unique(tmp_data$treatment)) {
+  # select distances for a treatment
+  tmp_value_ttt = tmp_data$value[tmp_data$treatment == tmp_ttt]
+  # Welch's t-test
+  tmp = t.test(tmp_value_t0,tmp_value_ttt)
+  # extract p.value
+  tmp_df = tibble("treatment"=tmp_ttt,
+                  "pval"=tmp$p.value)
+  tmp_stat <- rbind(tmp_stat,tmp_df)
+}
+# apply a Bonferroni correction
+tmp_stat[,"pval_adj"] <- p.adjust(tmp_stat$pval,method = "bonferroni")
+# add an asterisk if significant
+tmp_stat[,"stat_groups"] <- ifelse(tmp_stat$pval_adj <= 0.05,"*","")
+tmp_stat
+
+# PLOT
+ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 325, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  labs(x="Treatment", y= "Simpson's Reciprocal", color = "#333333")+
+  coord_flip(ylim = c(0,350))+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+
+```
+
+### Comparison of suspensions among each other
+
+```{r observed_species}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = sample_names(ps_16S_susp_manip)
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(observed_species))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# TUKEY HSD TEST
+## linear model
+tmp_lm = lm(tmp_data$value ~ tmp_data$treatment, na.action = na.omit )
+## anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey HSD test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+# PLOT
+tmp_p2 <-
+  ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 85, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,90))+
+  labs(x="Treatment", y= "Observed species", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+```
+
+```{r PD_whole_tree}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = sample_names(ps_16S_susp_manip)
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(PD_whole_tree))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# TUKEY HSD TEST
+## linear model
+tmp_lm = lm(tmp_data$value ~ tmp_data$treatment, na.action = na.omit )
+## anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey HSD test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+# PLOT
+ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 8.25, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,9))+
+  labs(x="Treatment", y= "PD Whole Tree", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+```
+
+```{r simpson_reciprocal}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = sample_names(ps_16S_susp_manip)
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(simpson_reciprocal))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# TUKEY HSD TEST
+## linear model
+tmp_lm = lm(tmp_data$value ~ tmp_data$treatment, na.action = na.omit )
+## anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey HSD test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+# PLOT
+ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 9.75, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,10.5))+
+  labs(x="Treatment", y= "Simpson's Reciprocal", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+```
+
+
+
+
+## $\beta$-diversity
+
+### Comparison of each suspension to the original soil
+
+```{r calculate_w_unifrac }
+
+# choose data (create a phyloseq object with original soil and suspension samples)
+tmp_ps <- prune_samples(ps_16S@sam_data$sample_type != "microcosm",ps_16S)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) > 0, tmp_ps)
+
+# calculate distance matrix and ordination
+## rarefy dataset
+set.seed(8000)
+tmp_ps = rarefy_even_depth(tmp_ps,rngseed = T)
+## calculate distances
+tmp_dist = distance(tmp_ps,"wunifrac")
+## calculate ordination
+tmp_ordin = ordinate(tmp_ps, "PCoA", distance = tmp_dist)
+
+# select distances from the control suspension samples
+## wrangle distance matrix into a longer data frame
+tmp_dist_matrix = melt(as.matrix(tmp_dist))
+## remove sample self-comparisons
+tmp_dist_matrix = tmp_dist_matrix[tmp_dist_matrix$Var1 != tmp_dist_matrix$Var2,]
+## select sample data
+tmp_sam_data = tibble("sample"=as.numeric(tmp_ps@sam_data$sample),
+                      "treatment"=tmp_ps@sam_data$treatment)
+## combined distance matrix with sample data
+colnames(tmp_sam_data) = c("Var1", "treatment1")
+tmp_data <- left_join(tmp_dist_matrix, tmp_sam_data, by = "Var1")
+colnames(tmp_sam_data) = c("Var2", "treatment2")
+tmp_data <- left_join(tmp_data, tmp_sam_data, by = "Var2")
+## select distances from the control
+tmp_data <- tmp_data[tmp_data$treatment1 == "susp_C",]
+
+```
+
+```{r test_stat}
+
+# select distances between original soil samples
+tmp_value_C = tmp_data$value[tmp_data$treatment2 =="susp_C"]
+# empty data frame for loop
+tmp_stat = tibble()
+# loop
+for (tmp_ttt in unique(tmp_data$treatment2)) {
+  # select distances for a treatment
+  tmp_value_ttt = tmp_data$value[tmp_data$treatment2 == tmp_ttt]
+  # Welch's t-test
+  tmp = t.test(tmp_value_C,tmp_value_ttt)
+  # extract p.value
+  tmp_df = tibble("treatment"=tmp_ttt,
+                  "pval"=tmp$p.value)
+  tmp_stat <- rbind(tmp_stat,tmp_df)
+}
+# apply a Bonferroni correction
+tmp_stat[,"pval_adj"] <- p.adjust(tmp_stat$pval,method = "bonferroni")
+# add an asterisk if significant
+tmp_stat[,"stat_groups"] <- ifelse(tmp_stat$pval_adj <= 0.05,"*","")
+tmp_stat
+
+```
+
+```{r plot_distance_to_control}
+
+# wrangle data
+tmp_plot_data = tibble("treatment" = tmp_data$treatment2,
+                       "sample" = tmp_data$Var2,
+                       "value"=tmp_data$value)
+# add treatment color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_plot_data = left_join(tmp_plot_data,tmp_colors,by="treatment")
+tmp_plot_stat = left_join(tmp_stat,tmp_colors,by="treatment")
+
+### plot
+tmp_p1 <-
+  ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            mapping = aes(label = stat_groups,y = 0.6,x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,2))+
+  labs(x="Treatment", y= "Distance to control samples", color = "#333333")+
+  theme_bw()+
+  theme(axis.title= element_text(face="bold", size=12))
+
+
+```
+
+```{r plot_PCoA}
+
+# select samples coordinates for ordination plot
+tmp_data_2D <- tibble("sample" = as.numeric(rownames(tmp_ordin[["vectors"]])),
+                      "x" = tmp_ordin[["vectors"]][,1],
+                      "y" = tmp_ordin[["vectors"]][,2])
+# select axis titles
+tmp_x_lab = round(tmp_ordin[["values"]][["Relative_eig"]][1]*100,2)
+tmp_x_lab <- paste0("Axis 1: ",tmp_x_lab," %")
+tmp_y_lab = round(tmp_ordin[["values"]][["Relative_eig"]][2]*100,2)
+tmp_y_lab <- paste0("Axis 2: ",tmp_y_lab," %")
+# add treatment, color & order
+tmp_data_2D <- left_join(tmp_data_2D,tmp_ps@sam_data[,c("sample","treatment")], by = "sample")
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data_2D <- left_join(tmp_data_2D,tmp_colors,by = "treatment")
+
+# plot
+ggplot(tmp_data_2D)+
+  aes(x=x,y=y) +
+  geom_point(shape = 21,size = 3, fill = tmp_data_2D$color) +
+  scale_fill_manual(labels = levels(reorder(tmp_data_2D$treatment,tmp_data_2D$order)),
+                    values = levels(reorder(tmp_data_2D$color,tmp_data_2D$order))) +
+  labs(x =  paste0("\n",tmp_x_lab), 
+       y = paste0("\n",tmp_y_lab)) +
+  theme_bw() +
+  theme(axis.title = element_text(face="bold", size=12))
+
+```
+
+### Comparison of suspensions among each other
+
+```{r test_stat}
+
+# select manipulated suspension samples
+tmp_data_manip = tmp_data[tmp_data$Var2 %in% sample_names(ps_16S_susp_manip),]
+
+# TUKEY HSD TEST
+## linear model
+tmp_lm = lm(tmp_data_manip$value ~ tmp_data_manip$treatment2, na.action = na.omit )
+## anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey HSD test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data_manip$treatment2',alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+```
+
+```{r plot_distance_to_control}
+
+# wrangle data
+tmp_plot_data = tibble("treatment" = tmp_data_manip$treatment2,
+                       "sample" = tmp_data_manip$Var2,
+                       "value"=tmp_data_manip$value)
+# add treatment color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_plot_data = left_join(tmp_plot_data,tmp_colors,by="treatment")
+tmp_plot_stat = left_join(tmp_stat,tmp_colors,by="treatment")
+
+### plot
+tmp_p2 <-
+  ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            mapping = aes(label = stat_groups,y = 0.6,x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,0.65))+
+  labs(x="Treatment", y= "Distance to control samples", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+
+```
+
+## Combine plots
+
+```{r}
+
+tmp_p1 + annotation_custom(ggplotGrob(tmp_p2), xmin = 1, xmax = 4, 
+                       ymin = 0.7, ymax = 2)
+
+
+# export svg
+p = tmp_p1
+  
+p[["labels"]][["title"]] <- element_blank()
+p[["labels"]][["x"]] <- element_blank()
+p[["labels"]][["y"]] <- element_blank()
+p[["theme"]][["legend.position"]] <- 'none'
+p[["theme"]][["axis.text.x"]] <- element_blank()
+p[["theme"]][["axis.text.y"]] <- element_blank()
+#p[["theme"]][["axis.text.y"]][["size"]] <- 6
+library(ggedit)
+p <- remove_geom(p, "GeomText")
+
+p
+ggsave(plot = p,
+       filename = "C:/Users/srhuet/Downloads/tmp_fig.svg",
+        #width = 200/1,height = 287/1,units = "mm")
+        width = 49,height = 37,units = "mm")
+```
+
+# Microcosm $\alpha$- and $\beta$-diversity
+
+## Effect of coalescence treatments
+
+### $\alpha$-diversity
+
+To estimate the effect of each treatment on $\alpha$-diversity metrics, we used ANOVAs based on a linear model (Equation 1) followed by Tukey's honestly significant difference (HSD) test (p-value $\le$ 0.05) using the agricolae package (de Mendiburu & Yaseen, 2020). Normality and homogeneity of the residual distribution were verified. Considering that a diversity index Y, in any j replicates of any i treatment, follows a Gaussian distribution of mean $\bar{y}$ and variance $\sigma^2$ as $Y\sim\mathcal{N}\left(\bar{y},\sigma^2\right)$, we used the following model:
+
+$$Y_{ij}=\mu+\gamma_i+\varepsilon_{ij},\ \ \varepsilon_{{ij}_{1\le j\le10}}\mathrm{\ iid}\sim\mathcal{N}\left(0,\sigma^2\right)\ \left(1\right)$$
+where $i=\left\{0,\ldots,12\right\}$ represents the non-coalesced control and the coalescence treatments, j=\left\{1,\ldots,10\right\} represents the replicates, $\gamma$ is the fixed effect of the treatments and $\varepsilon$ is the model residuals.
+
+```{r observed_species}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = sample_names(ps_16S_micro)
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(observed_species))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# TUKEY HSD TEST
+## linear model
+tmp_lm = lm(tmp_data$value ~ tmp_data$treatment, na.action = na.omit )
+## anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey HSD test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+# PLOT
+ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 1200, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,1275))+
+  labs(x="Treatment", y= "Observed species", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+# STORE DATA
+div_metrics[["observed_species"]] <- tmp_data
+
+```
+
+```{r PD_whole_tree}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = sample_names(ps_16S_micro)
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(PD_whole_tree))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# TUKEY HSD TEST
+## linear model
+tmp_lm = lm(tmp_data$value ~ tmp_data$treatment, na.action = na.omit )
+## anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey HSD test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+# PLOT
+ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 90, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,100))+
+  labs(x="Treatment", y= "PD Whole Tree", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+# STORE DATA
+div_metrics[["PD_whole_tree"]] <- tmp_data
+
+
+```
+
+```{r simpson_reciprocal}
+
+# WRANGLE DATA
+## select samples
+tmp_samples = sample_names(ps_16S_micro)
+## select data
+tmp_alphadiv <- alphadiv_all[as.character(alphadiv_all$sample) %in% tmp_samples,]
+## concatenate iterations for each sample by mean
+tmp_data <- tmp_alphadiv %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(simpson_reciprocal))
+
+## add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")],by="sample")
+## add color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data <- left_join(tmp_data,tmp_colors,by = "treatment")
+
+# TUKEY HSD TEST
+## linear model
+tmp_lm = lm(tmp_data$value ~ tmp_data$treatment, na.action = na.omit )
+## anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey HSD test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+# PLOT
+ggplot(tmp_data, aes(x = reorder(treatment,desc(order)), y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               fill = levels(reorder(tmp_data$color,desc(tmp_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_stat, mapping = aes(label = stat_groups, y = 80, x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,90))+
+  labs(x="Treatment", y= "Simpson's Reciprocal", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+# STORE DATA
+div_metrics[["simpson_reciprocal"]] <- tmp_data
+
+```
+
+### $\beta$-diversity
+
+To estimate the effect of each treatment on $\beta$-diversity, we performed principal components analyses (PCoA) and permutated analysis of variance (PERMANOVA) using the ordin and adonis function of the vegan package (version 2.6-2), respectively (Anderson, 2001), based on weighted Unifrac distance matrix. We also implemented pairwise comparisons between treatment using the pairwise.adonis function from the pairwiseAdonis package (version 0.4).
+
+```{r calculate_w_unifrac }
+
+# choose data
+tmp_ps = ps_16S_micro
+
+# calculate distance matrix and ordination
+## rarefy dataset
+set.seed(8000)
+tmp_ps = rarefy_even_depth(tmp_ps,rngseed = T)
+## calculate distances
+tmp_dist = distance(tmp_ps,"wunifrac")
+## calculate ordination
+tmp_ordin = ordinate(tmp_ps, "PCoA", distance = tmp_dist)
+
+# select distances from the control samples
+## wrangle distance matrix into a longer data frame
+tmp_dist_matrix = melt(as.matrix(tmp_dist))
+## remove sample self-comparisons
+tmp_dist_matrix = tmp_dist_matrix[tmp_dist_matrix$Var1 != tmp_dist_matrix$Var2,]
+## select sample data
+tmp_sam_data = tibble("sample"=as.numeric(tmp_ps@sam_data$sample),
+                      "treatment"=tmp_ps@sam_data$treatment)
+## combined distance matrix with sample data
+colnames(tmp_sam_data) = c("Var1", "treatment1")
+tmp_data <- left_join(tmp_dist_matrix, tmp_sam_data, by = "Var1")
+colnames(tmp_sam_data) = c("Var2", "treatment2")
+tmp_data <- left_join(tmp_data, tmp_sam_data, by = "Var2")
+## select distances from the control samples
+tmp_data <- tmp_data[tmp_data$treatment1 == "C",]
+
+```
+
+```{r test_stat}
+
+# convert dist object into a matrix
+tmp_matrix = as.matrix(tmp_dist)
+# create a vector with the treatment for each sample
+tmp_ttt = tmp_ps@sam_data$treatment
+names(tmp_ttt) = tmp_ps@sam_data$sample
+# check that samples and treatments match well between vectors
+#tmp_ttt[1:10]
+#rownames(tmp_matrix)[1:10]
+
+# adonis
+tmp_adonis = adonis2(formula = tmp_matrix ~ tmp_ttt, permutations = 9999)
+tmp_adonis
+
+# pairwise comparison between treatments
+tmp_adonis_pair = pairwise.adonis(tmp_matrix, factors=tmp_ttt,p.adjust.m='BH')
+# subset pairs name
+tmp = unlist(strsplit(tmp_adonis_pair$pairs," vs "))
+tmp_adonis_pair[,"a"] <- tmp[seq(1,length(tmp),by=2)]
+tmp_adonis_pair[,"b"] <- tmp[seq(2,length(tmp),by=2)]
+
+# statistic groups
+## reorder by lower mean value
+tmp_adonis_order <- tmp_data[,c("treatment2","value")] %>% 
+  dplyr::group_by(treatment2) %>% 
+  dplyr::summarise(mean = mean(value))
+tmp_adonis_order = left_join(tmp_adonis_pair,tmp_adonis_order,
+                             by=c("a"="treatment2"))
+tmp = tmp_adonis_order$p.adjusted[order(tmp_adonis_order$mean,decreasing = F)]
+names(tmp) <- paste0(tmp_adonis_order$a[order(tmp_adonis_order$mean,decreasing = F)],
+                     "-",tmp_adonis_pair$b[order(tmp_adonis_order$mean,decreasing = F)])
+## letters
+tmp_letters <- multcompLetters(tmp,compare="<=",threshold=0.05,Letters=letters)
+tmp_stat = tibble("treatment"=names(tmp_letters$Letters),
+                  "stat_groups"=tmp_letters$Letters)
+
+
+```
+
+```{r plot_distance_to_control}
+
+# wrangle data
+tmp_plot_data = tibble("treatment" = tmp_data$treatment2,
+                       "sample" = tmp_data$Var2,
+                       "value"=tmp_data$value)
+
+# add treatment color and order
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_plot_data = left_join(tmp_plot_data,tmp_colors,by="treatment")
+tmp_plot_stat = left_join(tmp_stat,tmp_colors,by="treatment")
+
+# PLOT
+ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               linetype = 1,
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  stat_summary(geom = "linerange", fun.data = mean_se, color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            mapping = aes(label = stat_groups,y = 0.23,x=treatment),
+            colour="#333333", size=8,inherit.aes = F) +
+  coord_flip(ylim = c(0,0.26))+
+  labs(x="Treatment", y= "Distance to control samples", color = "#333333")+
+  theme_bw()+
+  theme(axis.title = element_text(face="bold", size=12))
+
+# STORE DATA
+div_metrics[["wunifrac"]] <- tmp_plot_data
+
+```
+
+```{r plot_PCoA}
+
+# select samples coordinates for ordination plot
+tmp_data_2D <- tibble("sample" = as.numeric(rownames(tmp_ordin[["vectors"]])),
+                      "x" = tmp_ordin[["vectors"]][,1],
+                      "y" = tmp_ordin[["vectors"]][,2])
+# select axis titles
+tmp_x_lab = round(tmp_ordin[["values"]][["Relative_eig"]][1]*100,2)
+tmp_x_lab <- paste0("Axis 1: ",tmp_x_lab," %")
+tmp_y_lab = round(tmp_ordin[["values"]][["Relative_eig"]][2]*100,2)
+tmp_y_lab <- paste0("Axis 2: ",tmp_y_lab," %")
+# add treatment, color & order
+tmp_data_2D <- left_join(tmp_data_2D,tmp_ps@sam_data[,c("sample","treatment")], by = "sample")
+tmp_colors <- color_palette[color_palette$set == "treatments",c("treatment","color","order")]
+tmp_data_2D <- left_join(tmp_data_2D,tmp_colors,by = "treatment")
+
+# select data for control ellipse
+tmp_data_ellipse = tmp_data_2D[tmp_data_2D$treatment == "C",]
+
+### plot
+# plot
+ggplot(tmp_data_2D)+
+  aes(x=x,y=y) +
+  geom_point(shape = 21,size = 3, fill = tmp_data_2D$color) +
+  stat_ellipse(data = tmp_data_ellipse, colour = unique(tmp_data_ellipse$color),size=2) +
+  scale_fill_manual(labels = levels(reorder(tmp_data_2D$treatment,tmp_data_2D$order)),
+                    values = levels(reorder(tmp_data_2D$color,tmp_data_2D$order))) +
+  labs(x =  paste0("\n",tmp_x_lab), 
+       y = paste0("\n",tmp_y_lab)) +
+  theme_bw() +
+  theme(axis.title = element_text(face="bold", size=12))
+
+```
+
+## Effect of community properties
+
+To assess the relative contribution of the community properties to each $\alpha$- and $\beta$-diversity metric, we calculated the property F-values using ANOVAs based on a linear model (Equation 2). Normality and homogeneity of the residual distribution were verified. Considering that a diversity index Y, in any j replicates of any coalescence treatment with a diversity, b composition and d density, follows a Gaussian distribution of mean $\bar{y}$ and variance $\sigma^2$ as $Y\sim\mathcal{N}\left(\bar{y},\sigma^2\right)$, we used the following model:
+
+$$Y_{abdj}=\mu+\alpha_a+\beta_b+\delta_d+(\alpha\beta_{ab})+(\alpha\delta_{ad})+(\beta\delta_{bd})+(\alpha\beta\delta_{abd})+\varepsilon_{abdj}, \ \ \varepsilon_{{abdj}_{1\le j\le10}}\mathrm{\ iid}\sim\mathcal{N}\left(0,\sigma^2\right)\ \left(2\right)$$
+
+where $a=\left\{1,2\right\}$ represents the diversity, $b=\left\{1,2\right\}$ represents the composition, $d=\left\{1,2,3\right\}$ represents the density, $j=\left\{1,\ldots,10\right\}$ represents the replicates, $\alpha$, $\beta$, $\delta$ are the fixed effects of the diversity, composition and density of the manipulated communities, respectively, and their interactions, and $\varepsilon$ is the model residuals.
+
+```{r model}
+
+tmp_global_df = tibble()
+
+for (tmp_index in c("observed_species","PD_whole_tree","simpson_reciprocal","wunifrac")) {
+  
+  tmp_data = div_metrics[[tmp_index]]
+  
+  # keep only coalesced communities
+  tmp_data <- tmp_data[tmp_data$treatment != "C",]
+  
+  # add metadata
+  tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","incub","broth","density")],by="sample")
+
+  ## STAT
+  tmp_lm = lm(value~tmp_data$incub*tmp_data$broth*tmp_data$density, data = tmp_data)
+  tmp_anova = aov(tmp_lm)
+  summary(tmp_anova)
+  tmp_aov_sum = summary(tmp_anova)[[1]]
+  
+  ## GLOBAL DF
+  tmp_df = tibble("metric"=tmp_index,
+                  "var"=rownames(tmp_aov_sum),
+                  tmp_aov_sum)
+  ## calculate percentage of variance explained
+  tmp_df[,"pct_expl"] = tmp_df$`Sum Sq` /sum(tmp_df$`Sum Sq`)*100
+  
+  ## extract data
+  tmp_global_df <- rbind(tmp_global_df,tmp_df)
+  
+}
+
+# bonferroni correction
+tmp_global_df[,"pval_adjust"] <- p.adjust(tmp_global_df$`Pr(>F)`,method = "bonferroni")
+# keep significant F values and pct_expl
+tmp_global_df[,"rel_fval"] <- ifelse(tmp_global_df$pval_adjust <= 0.05,
+                                     tmp_global_df$`F value`,0)
+tmp_global_df[,"rel_pct_expl"] <- ifelse(tmp_global_df$pval_adjust <= 0.05,
+                                     tmp_global_df$pct_expl,0)
+
+# STORE DATA
+stat_fval_metric = tmp_global_df
+
+```
+
+
+```{r plot_F_values}
+
+tmp_data = stat_fval_metric
+# select color and order
+tmp_colors <- color_palette[color_palette$set == "properties",c("treatment","color","order")]
+## change variable name, add interaction type, metric type
+tmp_data[,"property"] <- rep(c(tmp_colors$treatment,"Residuals"),4)
+tmp_data[,"var_type"] <- rep(rep(c("var1","var2","var3","resid"),c(3,3,1,1)),4)
+tmp_data[,"metric_type"] <- rep(c("alpha","beta"),c(8*3,8*1))
+tmp_data$metric <- factor(tmp_data$metric,levels = rev(unique(tmp_data$metric)))
+## add color and order 
+tmp_data <- left_join(tmp_data,tmp_colors, by = c("property" = "treatment"))
+## keep only significant F values
+tmp_plot_data <- tmp_data[tmp_data$rel_fval > 0,]
+tmp_plot_data <- tmp_plot_data[complete.cases(tmp_plot_data),]
+
+# PLOT
+ggplot(tmp_plot_data, aes(x=metric,
+                          y=rel_fval,
+                          fill= reorder(property,order)))+
+  geom_bar(stat = "identity", position = "fill")+
+  scale_fill_manual(values = tmp_colors$color)+ 
+  coord_flip()+
+  labs(x="Diversity metric", y= "F value",color = "#333333")+
+  facet_grid(metric_type~var_type,scales = "free",switch = "y",space = "free_y") +
+  theme_classic()+
+  theme(axis.title = element_text(face="bold", size=10),
+        strip.background = element_rect(fill="#ffffff", colour="#ffffff",size=1.5),
+        strip.placement = "outside")
+
+```
+
+```{r plot_pct_expl dodge}
+
+tmp_data = stat_fval_metric
+# select color and order
+tmp_colors <- color_palette[color_palette$set == "properties",c("treatment","color","order")]
+## change variable name, add interaction type, metric type
+tmp_data[,"property"] <- rep(c(tmp_colors$treatment,"Residuals"),4)
+#tmp_data$property <- factor(tmp_data$metric,levels = rev(unique(tmp_data$property)))
+tmp_data[,"var_type"] <- rep(rep(c("var1","var2","var3","resid"),c(3,3,1,1)),4)
+tmp_data[,"metric_type"] <- rep(c("alpha","beta"),c(8*3,8*1))
+tmp_data$metric <- factor(tmp_data$metric,levels = (unique(tmp_data$metric)))
+## add color and order 
+tmp_data <- left_join(tmp_data,tmp_colors, by = c("property" = "treatment"))
+## keep only significant pval
+tmp_plot_data <- tmp_data[complete.cases(tmp_data),]
+tmp_plot_data <- tmp_plot_data[tmp_plot_data$pval_adjust <= 0.05,]
+
+# PLOT
+ggplot(tmp_plot_data, aes(x=metric,
+                          y=rel_pct_expl,
+                          fill= reorder(property,order)))+
+  geom_bar(stat = "identity", position = "dodge")+
+  #geom_bar(stat = "identity", position = position_dodge(preserve = "single"))+
+  scale_fill_manual(values = tmp_colors$color)+
+  coord_flip()+
+  labs(x="Diversity metric", y= "Variance explained (%)",color = "#333333")+
+  facet_grid(metric~var_type,scales = "free",switch = "y") +
+  theme_light()+
+  theme(axis.title = element_text(face="bold", size=10),
+        strip.background = element_rect(fill="#ffffff", colour="#ffffff",size=1.5),
+        strip.placement = "outside")
+
+```
+
+```{r plot_pct_expl stack}
+
+tmp_data = stat_fval_metric
+# select color and order
+tmp_colors <- color_palette[color_palette$set == "properties",c("treatment","color","order")]
+## change variable name, add interaction type, metric type
+tmp_data[,"property"] <- rep(c(tmp_colors$treatment,"Residuals"),4)
+#tmp_data$property <- factor(tmp_data$metric,levels = rev(unique(tmp_data$property)))
+tmp_data[,"var_type"] <- rep(rep(c("var1","var2","var3","resid"),c(3,3,1,1)),4)
+tmp_data[,"metric_type"] <- rep(c("alpha","beta"),c(8*3,8*1))
+tmp_data$metric <- factor(tmp_data$metric,levels = (unique(tmp_data$metric)))
+## add color and order 
+tmp_data <- left_join(tmp_data,tmp_colors, by = c("property" = "treatment"))
+## keep only significant pval
+tmp_plot_data <- tmp_data[complete.cases(tmp_data),]
+tmp_plot_data <- tmp_plot_data[tmp_plot_data$pval_adjust <= 0.05,]
+
+# PLOT
+ggplot(tmp_plot_data, aes(x=metric,
+                          y=rel_pct_expl,
+                          fill= reorder(property,order)))+
+  geom_bar(stat = "identity", position = "stack")+
+  scale_fill_manual(values = tmp_colors$color)+
+  coord_flip()+
+  scale_x_discrete(limits = rev(levels(tmp_plot_data$metric))) +
+  labs(x="Diversity metric", y= "Variance explained (%)",color = "#333333")+
+  facet_grid(~var_type,scales = "free_x",switch = "y") +
+  theme_light()
+
+```
+
+## Effect of OTUs in suspensions
+
+```{r}
+
+# OTUs in susp
+tmp_OTUs_in_susp = taxa_names(ps_16S_susp_manip)
+
+# Variation of these OTUs in microcosms
+tmp_heatmap = stat_otu_emmeans_fltr %>%
+  filter(OTU %in% tmp_OTUs_in_susp)
+
+# diversity metric
+## concatenate iterations for each sample by mean
+tmp_div_metric = div_metrics$wunifrac %>%
+  dplyr::group_by(treatment,sample) %>% 
+  dplyr::summarise(value = mean(value)) %>% ungroup()
+
+# TUKEY HSD TEST
+## linear model
+tmp_lm = lm(tmp_div_metric$value ~ tmp_otu_table@.Data,na.action = na.omit)
+## anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey HSD test
+tmp_comp <- HSD.test(tmp_aov,names(tmp_aov$coefficients),alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+
+```
+
+```{r}
+
+# OTUs table for OTUs detected in suspension
+tmp_ps <- ps_16S_micro
+tmp_ps <- subset_samples(tmp_ps,tmp_ps@sam_data$treatment != "C")
+tmp_ps <- subset_taxa(tmp_ps,taxa_names(tmp_ps) %in% taxa_names(ps_16S_susp_manip) &
+                        taxa_sums(tmp_ps) >0)
+tmp_otu_table <- tibble("sample" = sample_names(tmp_ps)) %>%
+  bind_cols(t(tmp_ps@otu_table@.Data))
+  
+tmp_index = names(div_metrics)[4]
+
+  tmp_div_metric = div_metrics[[tmp_index]] %>%
+    mutate(sample = as.character(sample)) %>%
+    dplyr::group_by(treatment,sample) %>%
+    dplyr::summarise(value = mean(value)) %>%
+    filter(treatment != "C") %>% ungroup() 
+  
+  # add OTUs in suspensions
+  tmp_data <- left_join(tmp_div_metric,tmp_otu_table,by="sample")
+
+  tmp_data <- data.frame (y = tmp_div_metric$value, x = I (t(tmp_ps@otu_table@.Data)))
+  str (data)
+  
+  ## STAT
+  tmp_lm = lm(y ~ x,data = tmp_data)
+  tmp_anova = aov(tmp_lm)
+  summary(tmp_anova)
+  tmp_aov_sum = summary(tmp_anova)[[1]]
+  
+  ## GLOBAL DF
+  tmp_df = tibble("metric"=tmp_index,
+                  "var"=rownames(tmp_aov_sum),
+                  tmp_aov_sum)
+  ## calculate percentage of variance explained
+  tmp_df[,"pct_expl"] = tmp_df$`Sum Sq` /sum(tmp_df$`Sum Sq`)*100
+  
+  ## extract data
+  tmp_global_df <- rbind(tmp_global_df,tmp_df)
+  
+```
+
+```{r cor_abund_in_microc}
+
+# OTUs table for OTUs detected in suspension
+tmp_ps <- ps_16S_micro
+
+tmp_otu_table <- tibble("sample" = sample_names(tmp_ps)) %>%
+  bind_cols(t(tmp_ps@otu_table@.Data))
+  
+tmp_index = names(div_metrics)[4]
+
+  tmp_div_metric = div_metrics[[tmp_index]] %>%
+    mutate(sample = as.character(sample)) %>%
+    dplyr::group_by(treatment,sample) %>%
+    dplyr::summarise(value = mean(value)) %>%
+    #filter(treatment != "C") %>% 
+    ungroup() %>%
+    dplyr::select(sample,value) 
+  
+  # add OTUs in suspensions
+  tmp_data <- left_join(tmp_div_metric,tmp_otu_table,by="sample")
+
+tmp_cor = cor(tmp_data[,-1])
+
+# remove duplicates
+tmp_cor[lower.tri(tmp_cor)] <- 0
+diag(tmp_cor) <- 0
+
+# extract and filter correlations
+tmp_links <- tmp_cor %>%
+  as.data.frame() %>%
+  mutate(to = rownames(.)) %>%
+  gather(from, cor, -to) %>%
+  # keep only correlations <-0.6 or >0.6
+  filter(abs(cor) > 0.6) %>%
+  mutate(
+    OTU_in_susp = case_when(
+      from %in% taxa_names(ps_16S_susp_manip) ~ "to_in_manip_susp",
+      .default = "not_in_manip_susp"
+    )
+  )
+
+
+```
+
+```{r cor_abund_in_susp}
+
+# OTUs table for OTUs detected in suspension
+tmp_ps <- ps_16S_susp
+## calculate relative abundance
+tmp_ps = transform_sample_counts(tmp_ps, function(x) x / sum(x))
+
+tmp_otu_table <- tibble("sample" = sample_names(tmp_ps)) %>%
+  bind_cols(t(tmp_ps@otu_table@.Data)) %>%
+  ## keep only OTUs also detected in microcosm
+  dplyr::select(sample,
+                colnames(tmp_otu_table)[which(colnames(tmp_otu_table) %in% taxa_names(ps_16S_micro))])
+  
+tmp_index = names(div_metrics)[4]
+
+  tmp_div_metric = div_metrics[[tmp_index]] %>%
+    mutate(sample = as.character(sample)) %>%
+    dplyr::group_by(treatment,sample) %>%
+    dplyr::summarise(value = mean(value)) %>%
+    #filter(treatment != "C") %>% 
+    ungroup() %>%
+    dplyr::select(sample,value) 
+  
+  # add OTUs in suspensions
+  tmp_data <- left_join(tmp_div_metric,tmp_otu_table,by="sample")
+
+tmp_cor = cor(tmp_data[,-1])
+
+# remove duplicates
+tmp_cor[lower.tri(tmp_cor)] <- 0
+diag(tmp_cor) <- 0
+
+# extract and filter correlations
+tmp_links <- tmp_cor %>%
+  as.data.frame() %>%
+  mutate(to = rownames(.)) %>%
+  gather(from, cor, -to) %>%
+  # keep only correlations <-0.6 or >0.6
+  filter(abs(cor) > 0.6) %>%
+  mutate(
+    OTU_in_susp = case_when(
+      from %in% taxa_names(ps_16S_susp_manip) ~ "to_in_manip_susp",
+      .default = "not_in_manip_susp"
+    )
+  )
+
+
+```
+
+

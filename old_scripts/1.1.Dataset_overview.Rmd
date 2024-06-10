@@ -1,0 +1,233 @@
+---
+title: "1.1. Dataset overview"
+author: "Sarah HUET"
+date: "2021 M12 22"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+
+library(phyloseq)
+library(ggplot2)
+library(tibble)
+library(tidyr)
+
+```
+
+# Sequencing depth
+
+```{r sequencing depth}
+
+tmp_ps=ps_16S_raw
+
+require(data.table)
+tmp_seq_dep <- tibble("samples"=sample_names(tmp_ps),
+                      "total_reads"=sample_sums(tmp_ps))
+  
+
+p <- ggplot(tmp_seq_dep, aes(total_reads)) +
+  geom_histogram() + 
+  ggtitle("Sequencing Depth")+ 
+  labs(x="Sample size (read total)",y= "Number of samples") +
+  scale_x_log10()
+
+p
+
+```
+
+# OTU prevalence and abundance by taxonomic rank
+
+```{r tables}
+
+tmp_ps = ps_16S
+
+# Create table, number of features for each phyla
+table(tax_table(tmp_ps)[, "Kingdom"], exclude = NULL)
+table(tax_table(tmp_ps)[, "Phylum"], exclude = NULL)
+table(tax_table(tmp_ps)[, "Class"], exclude = NULL)
+
+```
+
+```{r plot}
+
+tmp_taxa_rank = "Class"
+
+# Compute prevalence of each feature, store as data.frame
+tmp_prev = apply(X = otu_table(tmp_ps),
+                   MARGIN = ifelse(taxa_are_rows(tmp_ps),
+                                   yes = 1, no = 2),
+                   FUN = function(x){sum(x > 0)})
+
+
+# Add taxonomy and total read counts to this data.frame
+tmp_prev <- tibble("Prevalence" = tmp_prev,
+                   "Total_Abundance" = taxa_sums(tmp_ps),
+                   "Taxa_rank"= tmp_ps@tax_table@.Data[,tmp_taxa_rank],
+                   "Genus"= tmp_ps@tax_table@.Data[,"Genus"])
+
+plyr::ddply(tmp_prev,
+            "Taxa_rank",
+            function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
+
+#Graphical representation of phylum abundance/prevalence
+ggplot(tmp_prev, aes(Total_Abundance,
+                      Prevalence / nsamples(tmp_ps),color=Genus)) +
+  # Include a guess for parameter
+  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) +
+  geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() + 
+  labs(x="Total Abundance",y="Prevalence [Frac. Samples]",
+       title = paste0("OTU prevalence and abundance (",tmp_taxa_rank,")")) +
+  facet_wrap(~Taxa_rank) + 
+  theme(legend.position="none", axis.text.x = element_text(angle = 90, vjust = -0.2))
+
+
+```
+
+# OTU prevalence and abundance in treatments
+
+```{r}
+
+tmp_ps = ps_16S
+
+# merged by treatment (induce NA in sample data)
+tmp_ps_merged = merge_samples(tmp_ps,group = tmp_ps@sam_data$treatment)
+# extract ps data
+tmp_psmelt = psmelt(tmp_ps_merged)
+
+
+
+
+# Compute prevalence of each feature, store as data.frame
+tmp_prev = apply(X = otu_table(tmp_ps),
+                   MARGIN = ifelse(taxa_are_rows(tmp_ps),
+                                   yes = 1, no = 2),
+                   FUN = function(x){sum(x > 0)})
+
+tmp_prev = tibble("OTU"=taxa_names(tmp_ps),
+                  "Prevalence"=tmp_prev)
+
+# calculate OTUs prevalence in treatment (ttt)
+tmp_df <- psmelt(tmp_ps)
+tmp_otu_prev_ttt <- data.frame(matrix(ncol=length(unique(tmp_df$treatment)),
+                                     nrow=length(unique(tmp_df$OTU)), 
+                                     dimnames=list(unique(tmp_df$OTU),
+                                                   unique(tmp_df$treatment))))
+for (i in unique(tmp_df$OTU)) {
+  for (j in unique(tmp_df$treatment)) {
+    tmp_otu_prev_ttt[i,j] <- sum(tmp_df$Abundance[tmp_df$OTU == i & tmp_df$treatment == j] > 0,
+                                 na.rm = T) / length(tmp_df$Sample[tmp_df$OTU == i & tmp_df$treatment == j])
+  }
+  
+}
+
+
+
+
+tmp_data = full_join(tmp_psmelt,tmp_prev,by="OTU")
+
+#Graphical representation of OTU abundance/prevalence
+ggplot(tmp_data, aes(Abundance,
+                      Prevalence / nsamples(tmp_ps),color=Genus)) +
+  # Include a guess for parameter
+  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) +
+  geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() + 
+  labs(x="Abundance in treatments",y="Prevalence [Frac. All Samples]",
+       title = "OTU prevalence and abundance in treatments") +
+  facet_wrap(~Sample) + 
+  theme(legend.position="none", axis.text.x = element_text(angle = 90, vjust = -0.2))
+
+
+```
+
+# itol
+
+```{r OTU relative abundance in microcosms}
+
+tmp_ps = ps_16S_fltr
+
+## merge by treatments
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+
+tmp_data = psmelt(tmp_ps)
+tmp_data = tibble("OTU"=tmp_data$OTU,
+                  "treatment"=tmp_data$Sample,
+                  "abundance"=tmp_data$Abundance)
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = treatment, values_from = abundance)
+tmp_data <- tmp_data[,c("OTU","C","MAC_a1d1","MAC_a1d2","MAC_a1d3",
+                        "MAC_a2d1","MAC_a2d2","MAC_a2d3",
+                        "PEB_a1d1","PEB_a1d2","PEB_a1d3",
+                        "PEB_a2d1","PEB_a2d2","PEB_a2d3")]
+
+# extrcat data
+write.csv(tmp_data,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+```
+
+```{r OTU relative abundance in suspensions}
+
+tmp_ps = ps_16S_fltr
+
+tmp_OTUs = taxa_names(tmp_ps)
+
+tmp_ps = ps_16S_susp
+
+# subset taxa present also in microcosms
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% tmp_OTUs,tmp_ps)
+
+## merge by treatments
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+
+tmp_data = psmelt(tmp_ps)
+tmp_data = tibble("OTU"=tmp_data$OTU,
+                  "treatment"=tmp_data$Sample,
+                  "abundance"=tmp_data$Abundance)
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = treatment, values_from = abundance)
+tmp_data <- tmp_data[,c("OTU","susp_C","susp_MAC_a1","susp_MAC_a2",
+                        "susp_PEB_a1","susp_PEB_a2")]
+
+# extrcat data
+write.csv(tmp_data,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

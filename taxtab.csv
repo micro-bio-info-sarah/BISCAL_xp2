@@ -1,0 +1,259 @@
+OTU,Kingdom,Phylum,class,Order,Family,Genus,Species,taxa,Abundance,genus_clean,color,order
+OTU-123,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Devosiaceae,Devosia,bacterium enrichment culture clone heteroA15_4W,Alphaproteobacteria,6234,Devosia,#4d908e,3
+OTU-14924,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Devosiaceae,Devosia,uncultured bacterium,Alphaproteobacteria,2498,Devosia,#4d908e,3
+OTU-172,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Devosiaceae,Devosia,Ambiguous_taxa,Alphaproteobacteria,3779,Devosia,#4d908e,3
+OTU-51,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiales Incertae Sedis,Bauldia,uncultured bacterium,Alphaproteobacteria,1718,Bauldia,#4d908e,3
+OTU-99,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Hyphomonadaceae,Hirschia,uncultured Rhizobiaceae bacterium,Alphaproteobacteria,3156,Hirschia,#4d908e,3
+OTU-133,Bacteria,Proteobacteria,Alphaproteobacteria,Rickettsiales,SM2D12,metagenome,,Alphaproteobacteria,7501,metagenome,#4d908e,3
+OTU-44,Bacteria,Proteobacteria,Alphaproteobacteria,Micavibrionales,uncultured,uncultured bacterium,,Alphaproteobacteria,7806,Unknown Alphaproteobacteria,#4d908e,3
+OTU-10,Bacteria,Proteobacteria,Alphaproteobacteria,Micavibrionales,Micavibrionaceae,uncultured bacterium,,Alphaproteobacteria,9680,Unknown Alphaproteobacteria,#4d908e,3
+OTU-222,Bacteria,Proteobacteria,Gammaproteobacteria,Enterobacteriales,Enterobacteriaceae,Enterobacter,Enterobacter soli,Gammaproteobacteria,14902,Enterobacter,#f08060,9
+OTU-728,Bacteria,Proteobacteria,Gammaproteobacteria,Steroidobacterales,Steroidobacteraceae,uncultured,uncultured bacterium,Gammaproteobacteria,1229,Unknown Gammaproteobacteria,#f08060,9
+OTU-2874,Bacteria,Proteobacteria,Gammaproteobacteria,CCD24,uncultured bacterium,,,Gammaproteobacteria,852,Unknown Gammaproteobacteria,#f08060,9
+OTU-5121,Bacteria,Proteobacteria,Gammaproteobacteria,Oceanospirillales,Pseudohongiellaceae,BIyi10,metagenome,Gammaproteobacteria,1342,BIyi10,#f08060,9
+OTU-7,Bacteria,Proteobacteria,Gammaproteobacteria,Ambiguous_taxa,Ambiguous_taxa,Ambiguous_taxa,Ambiguous_taxa,Gammaproteobacteria,3397,Unknown Gammaproteobacteria,#f08060,9
+OTU-53321,Bacteria,Proteobacteria,Gammaproteobacteria,Oceanospirillales,Pseudohongiellaceae,BIyi10,uncultured soil bacterium,Gammaproteobacteria,1279,BIyi10,#f08060,9
+OTU-305,Bacteria,Proteobacteria,Gammaproteobacteria,Ambiguous_taxa,Ambiguous_taxa,Ambiguous_taxa,Ambiguous_taxa,Gammaproteobacteria,1993,Unknown Gammaproteobacteria,#f08060,9
+OTU-48234,Bacteria,Proteobacteria,Gammaproteobacteria,Oceanospirillales,Pseudohongiellaceae,BIyi10,uncultured soil bacterium,Gammaproteobacteria,4369,BIyi10,#f08060,9
+OTU-704,Bacteria,Proteobacteria,Gammaproteobacteria,Cellvibrionales,Spongiibacteraceae,BD1-7 clade,uncultured bacterium,Gammaproteobacteria,3296,BD1-7 clade,#f08060,9
+OTU-81,Bacteria,Proteobacteria,Gammaproteobacteria,Cellvibrionales,Cellvibrionaceae,Cellvibrio,uncultured bacterium,Gammaproteobacteria,5707,Cellvibrio,#f08060,9
+OTU-39431,Bacteria,Proteobacteria,Gammaproteobacteria,Pseudomonadales,Pseudomonadaceae,Pseudomonas,Ambiguous_taxa,Gammaproteobacteria,2474,Pseudomonas,#f08060,9
+OTU-28474,Bacteria,Proteobacteria,Gammaproteobacteria,Pseudomonadales,Pseudomonadaceae,Pseudomonas,Ambiguous_taxa,Gammaproteobacteria,615,Pseudomonas,#f08060,9
+OTU-150,Bacteria,Proteobacteria,Gammaproteobacteria,Pseudomonadales,Pseudomonadaceae,Pseudomonas,uncultured bacterium,Gammaproteobacteria,4845,Pseudomonas,#f08060,9
+OTU-25822,Bacteria,Proteobacteria,Gammaproteobacteria,Pseudomonadales,Pseudomonadaceae,Pseudomonas,Ambiguous_taxa,Gammaproteobacteria,2120,Pseudomonas,#f08060,9
+OTU-49248,Bacteria,Proteobacteria,Gammaproteobacteria,Pseudomonadales,Pseudomonadaceae,Pseudomonas,Pseudomonas umsongensis,Gammaproteobacteria,586,Pseudomonas,#f08060,9
+OTU-1,Bacteria,Proteobacteria,Gammaproteobacteria,Pseudomonadales,Pseudomonadaceae,Pseudomonas,Pseudomonas sp. HOT12,Gammaproteobacteria,80304,Pseudomonas,#f08060,9
+OTU-213,Bacteria,Proteobacteria,Gammaproteobacteria,Salinisphaerales,Solimonadaceae,Fontimonas,Ambiguous_taxa,Gammaproteobacteria,2853,Fontimonas,#f08060,9
+OTU-863,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Lysobacter,uncultured bacterium,Gammaproteobacteria,1579,Lysobacter,#f08060,9
+OTU-23498,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Lysobacter,Ambiguous_taxa,Gammaproteobacteria,598,Lysobacter,#f08060,9
+OTU-669,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Luteimonas,Ambiguous_taxa,Gammaproteobacteria,785,Luteimonas,#f08060,9
+OTU-217,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Pseudoxanthomonas,Ambiguous_taxa,Gammaproteobacteria,959,Pseudoxanthomonas,#f08060,9
+OTU-847,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Pseudoxanthomonas,Ambiguous_taxa,Gammaproteobacteria,2576,Pseudoxanthomonas,#f08060,9
+OTU-219,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Stenotrophomonas,uncultured soil bacterium,Gammaproteobacteria,6468,Stenotrophomonas,#f08060,9
+OTU-26710,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Stenotrophomonas,Stenotrophomonas rhizophila,Gammaproteobacteria,1574,Stenotrophomonas,#f08060,9
+OTU-38,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Stenotrophomonas,Pseudomonas helmanticensis,Gammaproteobacteria,10064,Stenotrophomonas,#f08060,9
+OTU-23709,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Stenotrophomonas,uncultured bacterium,Gammaproteobacteria,1028,Stenotrophomonas,#f08060,9
+OTU-151,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Lysobacter,uncultured gamma proteobacterium,Gammaproteobacteria,2673,Lysobacter,#f08060,9
+OTU-20,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Rhodanobacteraceae,Rhodanobacter,Ambiguous_taxa,Gammaproteobacteria,3930,Rhodanobacter,#f08060,9
+OTU-655,Bacteria,Proteobacteria,Gammaproteobacteria,Xanthomonadales,Xanthomonadaceae,Arenimonas,uncultured bacterium,Gammaproteobacteria,2934,Arenimonas,#f08060,9
+OTU-36,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Ambiguous_taxa,Ambiguous_taxa,Gammaproteobacteria,867,Unknown Gammaproteobacteria,#f08060,9
+OTU-7634,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Methylibium,Ambiguous_taxa,Gammaproteobacteria,648,Methylibium,#f08060,9
+OTU-54,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Hydrogenophaga,uncultured bacterium,Gammaproteobacteria,6438,Hydrogenophaga,#f08060,9
+OTU-22476,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Ambiguous_taxa,Ambiguous_taxa,Gammaproteobacteria,1328,Unknown Gammaproteobacteria,#f08060,9
+OTU-3584,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Hydrogenophaga,Ambiguous_taxa,Gammaproteobacteria,513,Hydrogenophaga,#f08060,9
+OTU-286,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Ramlibacter,uncultured bacterium,Gammaproteobacteria,7576,Ramlibacter,#f08060,9
+OTU-59018,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Methylibium,Ambiguous_taxa,Gammaproteobacteria,1018,Methylibium,#f08060,9
+OTU-157,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Noviherbaspirillum,uncultured bacterium,Gammaproteobacteria,1656,Noviherbaspirillum,#f08060,9
+OTU-2428,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Noviherbaspirillum,uncultured Herbaspirillum sp.,Gammaproteobacteria,1143,Noviherbaspirillum,#f08060,9
+OTU-317,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Limnobacter,uncultured organism,Gammaproteobacteria,5006,Limnobacter,#f08060,9
+OTU-98,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Achromobacter,Achromobacter xylosoxidans subsp. xylosoxidans,Gammaproteobacteria,6409,Achromobacter,#f08060,9
+OTU-2352,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Massilia,uncultured Massilia sp.,Gammaproteobacteria,1168,Massilia,#f08060,9
+OTU-17,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Massilia,Ambiguous_taxa,Gammaproteobacteria,41744,Massilia,#f08060,9
+OTU-17138,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Massilia,uncultured bacterium,Gammaproteobacteria,588,Massilia,#f08060,9
+OTU-5544,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Massilia,uncultured bacterium,Gammaproteobacteria,3222,Massilia,#f08060,9
+OTU-12250,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Burkholderiaceae,Massilia,uncultured bacterium,Gammaproteobacteria,986,Massilia,#f08060,9
+OTU-46,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,TRA3-20,uncultured bacterium,,Gammaproteobacteria,15546,Unknown Gammaproteobacteria,#f08060,9
+OTU-321,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,TRA3-20,uncultured bacterium,,Gammaproteobacteria,812,Unknown Gammaproteobacteria,#f08060,9
+OTU-23166,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Nitrosomonadaceae,MND1,Ambiguous_taxa,Gammaproteobacteria,1511,MND1,#f08060,9
+OTU-109,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Nitrosomonadaceae,Nitrosomonas,Ambiguous_taxa,Gammaproteobacteria,2071,Nitrosomonas,#f08060,9
+OTU-239,Bacteria,Proteobacteria,Gammaproteobacteria,Betaproteobacteriales,Methylophilaceae,Ambiguous_taxa,Ambiguous_taxa,Gammaproteobacteria,4432,Unknown Gammaproteobacteria,#f08060,9
+OTU-40,Bacteria,Proteobacteria,Deltaproteobacteria,Oligoflexales,Oligoflexaceae,uncultured,uncultured bacterium,Deltaproteobacteria,518,Unknown Deltaproteobacteria,#ffd673,7
+OTU-741,Bacteria,Proteobacteria,Deltaproteobacteria,Myxococcales,Sandaracinaceae,Sandaracinus,uncultured bacterium,Deltaproteobacteria,2526,Sandaracinus,#ffd673,7
+OTU-212,Bacteria,Proteobacteria,Deltaproteobacteria,Bdellovibrionales,Bdellovibrionaceae,OM27 clade,uncultured bacterium,Deltaproteobacteria,1007,OM27 clade,#ffd673,7
+OTU-152,Bacteria,Proteobacteria,Deltaproteobacteria,Bdellovibrionales,Bdellovibrionaceae,OM27 clade,Ambiguous_taxa,Deltaproteobacteria,1286,OM27 clade,#ffd673,7
+OTU-42,Bacteria,Proteobacteria,Deltaproteobacteria,Bdellovibrionales,Bdellovibrionaceae,Bdellovibrio,Ambiguous_taxa,Deltaproteobacteria,1280,Bdellovibrio,#ffd673,7
+OTU-248,Bacteria,Hydrogenedentes,Hydrogenedentia,Hydrogenedentiales,Hydrogenedensaceae,Ambiguous_taxa,,Others,688,Unknown Others,#322D2F,13
+OTU-258,Bacteria,Bacteroidetes,Rhodothermia,Rhodothermales,Rhodothermaceae,uncultured,Ambiguous_taxa,Bacteroidetes,1234,Unknown Bacteroidetes,#42a285,4
+OTU-771,Bacteria,Bacteroidetes,Ignavibacteria,OPB56,metagenome,,,Bacteroidetes,970,Unknown Bacteroidetes,#42a285,4
+OTU-70,Bacteria,Bacteroidetes,Ignavibacteria,OPB56,uncultured bacterium,,,Bacteroidetes,4585,Unknown Bacteroidetes,#42a285,4
+OTU-78,Bacteria,Bacteroidetes,Bacteroidia,Flavobacteriales,Flavobacteriaceae,Flavobacterium,uncultured Bacteroidetes bacterium,Bacteroidetes,2540,Flavobacterium,#42a285,4
+OTU-185,Bacteria,Bacteroidetes,Bacteroidia,Sphingobacteriales,Sphingobacteriaceae,Pedobacter,uncultured bacterium,Bacteroidetes,8098,Pedobacter,#42a285,4
+OTU-8353,Bacteria,Bacteroidetes,Bacteroidia,Sphingobacteriales,Sphingobacteriaceae,Pedobacter,Ambiguous_taxa,Bacteroidetes,1216,Pedobacter,#42a285,4
+OTU-47005,Bacteria,Bacteroidetes,Bacteroidia,Sphingobacteriales,Sphingobacteriaceae,Pedobacter,uncultured Sphingobacteriaceae bacterium,Bacteroidetes,1265,Pedobacter,#42a285,4
+OTU-106,Bacteria,Bacteroidetes,Bacteroidia,Sphingobacteriales,Sphingobacteriaceae,Pedobacter,Ambiguous_taxa,Bacteroidetes,3263,Pedobacter,#42a285,4
+OTU-124,Bacteria,Bacteroidetes,Bacteroidia,Sphingobacteriales,Sphingobacteriaceae,Pedobacter,Ambiguous_taxa,Bacteroidetes,4459,Pedobacter,#42a285,4
+OTU-120,Bacteria,Bacteroidetes,Bacteroidia,Sphingobacteriales,Sphingobacteriaceae,Sphingobacterium,Sphingobacterium sp. MYb210,Bacteroidetes,533,Sphingobacterium,#42a285,4
+OTU-585,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Saprospiraceae,uncultured,Ambiguous_taxa,Bacteroidetes,1153,Unknown Bacteroidetes,#42a285,4
+OTU-108,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Saprospiraceae,uncultured,Ambiguous_taxa,Bacteroidetes,1573,Unknown Bacteroidetes,#42a285,4
+OTU-23602,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,Flaviaesturariibacter,uncultured bacterium,Bacteroidetes,663,Flaviaesturariibacter,#42a285,4
+OTU-53,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,Flaviaesturariibacter,uncultured bacterium,Bacteroidetes,1533,Flaviaesturariibacter,#42a285,4
+OTU-89,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,Ambiguous_taxa,Ambiguous_taxa,Bacteroidetes,1165,Unknown Bacteroidetes,#42a285,4
+OTU-176,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,UTBCD1,Ambiguous_taxa,Bacteroidetes,2861,UTBCD1,#42a285,4
+OTU-198,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,uncultured,uncultured bacterium,Bacteroidetes,1573,Unknown Bacteroidetes,#42a285,4
+OTU-966,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,Flavisolibacter,Ambiguous_taxa,Bacteroidetes,3651,Flavisolibacter,#42a285,4
+OTU-278,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,Ambiguous_taxa,Ambiguous_taxa,Bacteroidetes,2428,Unknown Bacteroidetes,#42a285,4
+OTU-116,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,Flavisolibacter,Ambiguous_taxa,Bacteroidetes,957,Flavisolibacter,#42a285,4
+OTU-55504,Bacteria,Bacteroidetes,Bacteroidia,Chitinophagales,Chitinophagaceae,Flavisolibacter,uncultured bacterium,Bacteroidetes,2119,Flavisolibacter,#42a285,4
+OTU-125,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Spirosomaceae,Dyadobacter,uncultured bacterium,Bacteroidetes,643,Dyadobacter,#42a285,4
+OTU-375,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Microscillaceae,uncultured,Ambiguous_taxa,Bacteroidetes,669,Unknown Bacteroidetes,#42a285,4
+OTU-58,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Microscillaceae,Ohtaekwangia,uncultured bacterium,Bacteroidetes,725,Ohtaekwangia,#42a285,4
+OTU-309,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Microscillaceae,Ohtaekwangia,Ambiguous_taxa,Bacteroidetes,1055,Ohtaekwangia,#42a285,4
+OTU-183,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Microscillaceae,uncultured,uncultured bacterium,Bacteroidetes,2652,Unknown Bacteroidetes,#42a285,4
+OTU-442,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Microscillaceae,uncultured,uncultured Bacteroidetes bacterium,Bacteroidetes,3673,Unknown Bacteroidetes,#42a285,4
+OTU-24,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Microscillaceae,uncultured,Ambiguous_taxa,Bacteroidetes,34197,Unknown Bacteroidetes,#42a285,4
+OTU-2206,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Adhaeribacter,Ambiguous_taxa,Bacteroidetes,1903,Adhaeribacter,#42a285,4
+OTU-70210,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Pontibacter,uncultured bacterium,Bacteroidetes,686,Pontibacter,#42a285,4
+OTU-26,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Pontibacter,Ambiguous_taxa,Bacteroidetes,100125,Pontibacter,#42a285,4
+OTU-24525,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Pontibacter,uncultured bacterium,Bacteroidetes,2173,Pontibacter,#42a285,4
+OTU-1574,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Adhaeribacter,Ambiguous_taxa,Bacteroidetes,3445,Adhaeribacter,#42a285,4
+OTU-247,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Cyclobacteriaceae,Algoriphagus,uncultured bacterium,Bacteroidetes,7587,Algoriphagus,#42a285,4
+OTU-11075,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Adhaeribacter,uncultured bacterium,Bacteroidetes,931,Adhaeribacter,#42a285,4
+OTU-18921,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Adhaeribacter,uncultured bacterium,Bacteroidetes,791,Adhaeribacter,#42a285,4
+OTU-3,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Adhaeribacter,Ambiguous_taxa,Bacteroidetes,60701,Adhaeribacter,#42a285,4
+OTU-145,Bacteria,Bacteroidetes,Bacteroidia,Cytophagales,Hymenobacteraceae,Adhaeribacter,uncultured Bacteroidetes bacterium,Bacteroidetes,734,Adhaeribacter,#42a285,4
+OTU-4225,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Bacillus nealsonii,Firmicutes,3188,Bacillus,#ffb255,8
+OTU-94,Bacteria,Firmicutes,Bacilli,Bacillales,Planococcaceae,Paenisporosarcina,Ambiguous_taxa,Firmicutes,3947,Paenisporosarcina,#ffb255,8
+OTU-31,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Bacillus korlensis,Firmicutes,1668,Bacillus,#ffb255,8
+OTU-773,Bacteria,Firmicutes,Bacilli,Bacillales,Planococcaceae,Solibacillus,Solibacillus silvestris,Firmicutes,906,Solibacillus,#ffb255,8
+OTU-56220,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Bacillus sp. PCWCS13,Firmicutes,1470,Bacillus,#ffb255,8
+OTU-128,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Ambiguous_taxa,Firmicutes,6606,Bacillus,#ffb255,8
+OTU-52,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Bacillus sp.,Firmicutes,1965,Bacillus,#ffb255,8
+OTU-16976,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,uncultured bacterium,Firmicutes,847,Bacillus,#ffb255,8
+OTU-59756,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Ambiguous_taxa,Firmicutes,563,Bacillus,#ffb255,8
+OTU-14508,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,uncultured bacterium,Firmicutes,1076,Bacillus,#ffb255,8
+OTU-58013,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Bacillus sp.,Firmicutes,13545,Bacillus,#ffb255,8
+OTU-4,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Bacillus sp. A1148,Firmicutes,26688,Bacillus,#ffb255,8
+OTU-16154,Bacteria,Firmicutes,Bacilli,Bacillales,Bacillaceae,Bacillus,Bacillus sp.,Firmicutes,1411,Bacillus,#ffb255,8
+OTU-2667,Bacteria,Firmicutes,Bacilli,Bacillales,Alicyclobacillaceae,Tumebacillus,uncultured bacterium,Firmicutes,2982,Tumebacillus,#ffb255,8
+OTU-2147,Bacteria,Firmicutes,Bacilli,Bacillales,Alicyclobacillaceae,Tumebacillus,uncultured bacterium,Firmicutes,820,Tumebacillus,#ffb255,8
+OTU-715,Bacteria,Firmicutes,Bacilli,Bacillales,Alicyclobacillaceae,Tumebacillus,uncultured bacterium,Firmicutes,728,Tumebacillus,#ffb255,8
+OTU-66662,Bacteria,Firmicutes,Bacilli,Bacillales,Alicyclobacillaceae,Tumebacillus,Ambiguous_taxa,Firmicutes,3258,Tumebacillus,#ffb255,8
+OTU-292,Bacteria,Acidobacteria,Acidobacteriia,Solibacterales,Solibacteraceae (Subgroup 3),PAUC26f,uncultured Acidobacteria bacterium,Acidobacteria,6514,PAUC26f,#6d597a,1
+OTU-581,Bacteria,Acidobacteria,Acidobacteriia,Solibacterales,Solibacteraceae (Subgroup 3),Candidatus Solibacter,Ambiguous_taxa,Acidobacteria,897,Candidatus Solibacter,#6d597a,1
+OTU-82,Bacteria,Acidobacteria,Acidobacteriia,Solibacterales,Solibacteraceae (Subgroup 3),Bryobacter,Ambiguous_taxa,Acidobacteria,2124,Bryobacter,#6d597a,1
+OTU-268,Bacteria,Acidobacteria,Acidobacteriia,Solibacterales,Solibacteraceae (Subgroup 3),Paludibaculum,uncultured bacterium,Acidobacteria,1085,Paludibaculum,#6d597a,1
+OTU-426,Bacteria,Chloroflexi,Anaerolineae,Caldilineales,Caldilineaceae,uncultured,Ambiguous_taxa,Chloroflexi,1724,Unknown Chloroflexi,#90be6d,5
+OTU-156,Bacteria,Chloroflexi,Anaerolineae,Caldilineales,Caldilineaceae,uncultured,uncultured bacterium,Chloroflexi,3120,Unknown Chloroflexi,#90be6d,5
+OTU-242,Bacteria,Chloroflexi,Anaerolineae,Caldilineales,Caldilineaceae,uncultured,Ambiguous_taxa,Chloroflexi,1417,Unknown Chloroflexi,#90be6d,5
+OTU-1458,Bacteria,Chloroflexi,Anaerolineae,Caldilineales,Caldilineaceae,uncultured,metagenome,Chloroflexi,811,Unknown Chloroflexi,#90be6d,5
+OTU-32,Bacteria,Chloroflexi,Anaerolineae,Caldilineales,Caldilineaceae,uncultured,uncultured Chloroflexi bacterium,Chloroflexi,1917,Unknown Chloroflexi,#90be6d,5
+OTU-914,Bacteria,Elusimicrobia,Lineage IIb,uncultured soil bacterium,,,,Others,561,Unknown Others,#322D2F,13
+OTU-709,Bacteria,Chloroflexi,Chloroflexia,Thermomicrobiales,AKYG1722,uncultured alpha proteobacterium,,Chloroflexi,4391,Unknown Chloroflexi,#90be6d,5
+OTU-625,Bacteria,Chloroflexi,Chloroflexia,Thermomicrobiales,JG30-KF-CM45,Ambiguous_taxa,,Chloroflexi,963,Unknown Chloroflexi,#90be6d,5
+OTU-1099,Bacteria,Chloroflexi,Chloroflexia,Thermomicrobiales,JG30-KF-CM45,Ambiguous_taxa,,Chloroflexi,1104,Unknown Chloroflexi,#90be6d,5
+OTU-263,Bacteria,Chloroflexi,Chloroflexia,Kallotenuales,AKIW781,uncultured bacterium,,Chloroflexi,687,Unknown Chloroflexi,#90be6d,5
+OTU-536,Bacteria,Chloroflexi,Anaerolineae,SBR1031,A4b,OLB13,Ambiguous_taxa,Chloroflexi,672,OLB13,#90be6d,5
+OTU-1340,Bacteria,Chloroflexi,TK10,uncultured Chloroflexi bacterium,,,,Chloroflexi,808,Unknown Chloroflexi,#90be6d,5
+OTU-1067,Bacteria,Chloroflexi,OLB14,uncultured bacterium,,,,Chloroflexi,1782,Unknown Chloroflexi,#90be6d,5
+OTU-56040,Bacteria,Verrucomicrobia,Verrucomicrobiae,Pedosphaerales,Pedosphaeraceae,Ambiguous_taxa,,Verrucomicrobia,3999,Unknown Verrucomicrobia,#7d092f,12
+OTU-324,Bacteria,Verrucomicrobia,Verrucomicrobiae,Pedosphaerales,Pedosphaeraceae,uncultured Verrucomicrobia bacterium,,Verrucomicrobia,12530,Unknown Verrucomicrobia,#7d092f,12
+OTU-1613,Bacteria,Verrucomicrobia,Verrucomicrobiae,Pedosphaerales,Pedosphaeraceae,uncultured bacterium,,Verrucomicrobia,792,Unknown Verrucomicrobia,#7d092f,12
+OTU-255,Bacteria,Verrucomicrobia,Verrucomicrobiae,Verrucomicrobiales,Rubritaleaceae,Luteolibacter,Ambiguous_taxa,Verrucomicrobia,889,Luteolibacter,#7d092f,12
+OTU-749,Bacteria,Verrucomicrobia,Verrucomicrobiae,Verrucomicrobiales,Verrucomicrobiaceae,uncultured,uncultured bacterium,Verrucomicrobia,1287,Unknown Verrucomicrobia,#7d092f,12
+OTU-6403,Bacteria,Verrucomicrobia,Verrucomicrobiae,Chthoniobacterales,Chthoniobacteraceae,Chthoniobacter,Ambiguous_taxa,Verrucomicrobia,1269,Chthoniobacter,#7d092f,12
+OTU-91,Bacteria,Verrucomicrobia,Verrucomicrobiae,Chthoniobacterales,Chthoniobacteraceae,Chthoniobacter,uncultured bacterium,Verrucomicrobia,6022,Chthoniobacter,#7d092f,12
+OTU-169,Bacteria,Verrucomicrobia,Verrucomicrobiae,Chthoniobacterales,Chthoniobacteraceae,Chthoniobacter,Ambiguous_taxa,Verrucomicrobia,3406,Chthoniobacter,#7d092f,12
+OTU-745,Bacteria,Verrucomicrobia,Verrucomicrobiae,Opitutales,Opitutaceae,Lacunisphaera,Ambiguous_taxa,Verrucomicrobia,2213,Lacunisphaera,#7d092f,12
+OTU-273,Bacteria,Verrucomicrobia,Verrucomicrobiae,Opitutales,Opitutaceae,Cephaloticoccus,uncultured bacterium,Verrucomicrobia,2501,Cephaloticoccus,#7d092f,12
+OTU-4976,Bacteria,Verrucomicrobia,Verrucomicrobiae,Opitutales,Opitutaceae,Opitutus,uncultured bacterium,Verrucomicrobia,1313,Opitutus,#7d092f,12
+OTU-861,Bacteria,Verrucomicrobia,Verrucomicrobiae,Opitutales,Opitutaceae,Cephaloticoccus,uncultured bacterium,Verrucomicrobia,1949,Cephaloticoccus,#7d092f,12
+OTU-28,Bacteria,Verrucomicrobia,Verrucomicrobiae,Opitutales,Opitutaceae,Opitutus,Ambiguous_taxa,Verrucomicrobia,18783,Opitutus,#7d092f,12
+OTU-88,Bacteria,Cyanobacteria,Sericytochromatia,uncultured bacterium,,,,Cyanobacteria,954,Unknown Cyanobacteria,#c5c35e,6
+OTU-7936,Bacteria,Cyanobacteria,Sericytochromatia,Ambiguous_taxa,,,,Cyanobacteria,1193,Unknown Cyanobacteria,#c5c35e,6
+OTU-225,Bacteria,Cyanobacteria,Sericytochromatia,Ambiguous_taxa,,,,Cyanobacteria,1196,Unknown Cyanobacteria,#c5c35e,6
+OTU-548,Bacteria,Patescibacteria,Saccharimonadia,Saccharimonadales,Ambiguous_taxa,,,Others,1296,Unknown Others,#322D2F,13
+OTU-1019,Bacteria,Patescibacteria,Saccharimonadia,Saccharimonadales,uncultured bacterium,,,Others,683,Unknown Others,#322D2F,13
+OTU-605,Bacteria,Planctomycetes,Planctomycetacia,Pirellulales,Pirellulaceae,Pirellula,Ambiguous_taxa,Planctomycetes,1822,Pirellula,#b32d45,11
+OTU-15,Bacteria,Planctomycetes,Planctomycetacia,Pirellulales,Pirellulaceae,Pirellula,uncultured bacterium,Planctomycetes,9210,Pirellula,#b32d45,11
+OTU-552,Bacteria,Planctomycetes,Planctomycetacia,Pirellulales,Pirellulaceae,Pirellula,Ambiguous_taxa,Planctomycetes,1247,Pirellula,#b32d45,11
+OTU-3055,Bacteria,Planctomycetes,Planctomycetacia,Pirellulales,Pirellulaceae,Rhodopirellula,Ambiguous_taxa,Planctomycetes,756,Rhodopirellula,#b32d45,11
+OTU-1130,Bacteria,Gemmatimonadetes,Gemmatimonadetes,Gemmatimonadales,Gemmatimonadaceae,uncultured,uncultured bacterium,Gemmatimonadetes,2425,Unknown Gemmatimonadetes,#ef5659,10
+OTU-142,Bacteria,Gemmatimonadetes,Gemmatimonadetes,Gemmatimonadales,Gemmatimonadaceae,Gemmatimonas,uncultured Gemmatimonas sp.,Gemmatimonadetes,2000,Gemmatimonas,#ef5659,10
+OTU-1664,Bacteria,Gemmatimonadetes,Gemmatimonadetes,Gemmatimonadales,Gemmatimonadaceae,Gemmatimonas,uncultured Gemmatimonas sp.,Gemmatimonadetes,2241,Gemmatimonas,#ef5659,10
+OTU-4113,Bacteria,Gemmatimonadetes,Gemmatimonadetes,Gemmatimonadales,Gemmatimonadaceae,Gemmatimonas,uncultured Gemmatimonas sp.,Gemmatimonadetes,720,Gemmatimonas,#ef5659,10
+OTU-182,Bacteria,Gemmatimonadetes,Gemmatimonadetes,Gemmatimonadales,Gemmatimonadaceae,uncultured,uncultured soil bacterium,Gemmatimonadetes,2248,Unknown Gemmatimonadetes,#ef5659,10
+OTU-661,Bacteria,Gemmatimonadetes,Gemmatimonadetes,Gemmatimonadales,Gemmatimonadaceae,uncultured,Ambiguous_taxa,Gemmatimonadetes,1099,Unknown Gemmatimonadetes,#ef5659,10
+OTU-6476,Bacteria,Gemmatimonadetes,Gemmatimonadetes,Gemmatimonadales,Gemmatimonadaceae,uncultured,Ambiguous_taxa,Gemmatimonadetes,748,Unknown Gemmatimonadetes,#ef5659,10
+OTU-1096,Bacteria,Gemmatimonadetes,S0134 terrestrial group,uncultured bacterium,,,,Gemmatimonadetes,1494,Unknown Gemmatimonadetes,#ef5659,10
+OTU-220,Bacteria,Gemmatimonadetes,S0134 terrestrial group,uncultured bacterium,,,,Gemmatimonadetes,1038,Unknown Gemmatimonadetes,#ef5659,10
+OTU-874,Bacteria,Gemmatimonadetes,S0134 terrestrial group,uncultured bacterium,,,,Gemmatimonadetes,887,Unknown Gemmatimonadetes,#ef5659,10
+OTU-637,Bacteria,Gemmatimonadetes,BD2-11 terrestrial group,uncultured bacterium,,,,Gemmatimonadetes,906,Unknown Gemmatimonadetes,#ef5659,10
+OTU-2672,Bacteria,Gemmatimonadetes,Longimicrobia,Longimicrobiales,Longimicrobiaceae,Ambiguous_taxa,,Gemmatimonadetes,1533,Unknown Gemmatimonadetes,#ef5659,10
+OTU-613,Bacteria,Gemmatimonadetes,Longimicrobia,Longimicrobiales,Longimicrobiaceae,uncultured bacterium,,Gemmatimonadetes,2250,Unknown Gemmatimonadetes,#ef5659,10
+OTU-195,Bacteria,Gemmatimonadetes,Longimicrobia,Longimicrobiales,Longimicrobiaceae,uncultured bacterium,,Gemmatimonadetes,958,Unknown Gemmatimonadetes,#ef5659,10
+OTU-281,Bacteria,Gemmatimonadetes,Longimicrobia,Longimicrobiales,Longimicrobiaceae,Ambiguous_taxa,,Gemmatimonadetes,4414,Unknown Gemmatimonadetes,#ef5659,10
+OTU-254,Bacteria,Gemmatimonadetes,Longimicrobia,Longimicrobiales,Longimicrobiaceae,uncultured bacterium,,Gemmatimonadetes,705,Unknown Gemmatimonadetes,#ef5659,10
+OTU-9815,Bacteria,Gemmatimonadetes,Longimicrobia,Longimicrobiales,Longimicrobiaceae,uncultured bacterium,,Gemmatimonadetes,1051,Unknown Gemmatimonadetes,#ef5659,10
+OTU-131,Bacteria,Gemmatimonadetes,Longimicrobia,Longimicrobiales,Longimicrobiaceae,uncultured Gemmatimonadetes bacterium,,Gemmatimonadetes,17142,Unknown Gemmatimonadetes,#ef5659,10
+OTU-310,Bacteria,Acidobacteria,Blastocatellia (Subgroup 4),Blastocatellales,Blastocatellaceae,uncultured,uncultured bacterium,Acidobacteria,1603,Unknown Acidobacteria,#6d597a,1
+OTU-1097,Bacteria,Actinobacteria,Acidimicrobiia,Microtrichales,Iamiaceae,Iamia,Ambiguous_taxa,Actinobacteria,1595,Iamia,#577590,2
+OTU-1071,Bacteria,Actinobacteria,Actinobacteria,Streptomycetales,Streptomycetaceae,Streptomyces,Streptomyces xinjiangensis,Actinobacteria,833,Streptomyces,#577590,2
+OTU-42709,Bacteria,Actinobacteria,Actinobacteria,Streptomycetales,Streptomycetaceae,Streptomyces,Streptomyces albus,Actinobacteria,723,Streptomyces,#577590,2
+OTU-3827,Bacteria,Actinobacteria,Actinobacteria,Streptomycetales,Streptomycetaceae,Streptomyces,Ambiguous_taxa,Actinobacteria,3006,Streptomyces,#577590,2
+OTU-1360,Bacteria,Actinobacteria,Actinobacteria,Corynebacteriales,Nocardiaceae,Rhodococcus,Ambiguous_taxa,Actinobacteria,639,Rhodococcus,#577590,2
+OTU-413,Bacteria,Actinobacteria,Actinobacteria,Corynebacteriales,Mycobacteriaceae,Mycobacterium,Ambiguous_taxa,Actinobacteria,2345,Mycobacterium,#577590,2
+OTU-1090,Bacteria,Actinobacteria,Actinobacteria,Micrococcales,Cellulomonadaceae,Actinotalea,Ambiguous_taxa,Actinobacteria,883,Actinotalea,#577590,2
+OTU-191,Bacteria,Actinobacteria,Actinobacteria,Micrococcales,Cellulomonadaceae,Oerskovia,uncultured bacterium,Actinobacteria,916,Oerskovia,#577590,2
+OTU-149,Bacteria,Actinobacteria,Actinobacteria,Micrococcales,uncultured,uncultured bacterium,,Actinobacteria,1881,Unknown Actinobacteria,#577590,2
+OTU-5,Bacteria,Actinobacteria,Actinobacteria,Micrococcales,Micrococcaceae,Ambiguous_taxa,Arthrobacter globiformis,Actinobacteria,44953,Unknown Actinobacteria,#577590,2
+OTU-10108,Bacteria,Actinobacteria,Actinobacteria,Propionibacteriales,Nocardioidaceae,Nocardioides,uncultured bacterium,Actinobacteria,768,Nocardioides,#577590,2
+OTU-70712,Bacteria,Actinobacteria,Actinobacteria,Propionibacteriales,Nocardioidaceae,Nocardioides,uncultured actinobacterium,Actinobacteria,1137,Nocardioides,#577590,2
+OTU-65,Bacteria,Actinobacteria,Actinobacteria,Propionibacteriales,Nocardioidaceae,Aeromicrobium,uncultured Aeromicrobium sp.,Actinobacteria,1476,Aeromicrobium,#577590,2
+OTU-976,Bacteria,BRC1,uncultured bacterium,,,,,Others,566,Unknown Others,#322D2F,13
+OTU-139,Bacteria,BRC1,Ambiguous_taxa,,,,,Others,722,Unknown Others,#322D2F,13
+OTU-580,Bacteria,Acidobacteria,Subgroup 6,uncultured bacterium,,,,Acidobacteria,6743,Unknown Acidobacteria,#6d597a,1
+OTU-1034,Bacteria,Acidobacteria,Subgroup 6,Ambiguous_taxa,,,,Acidobacteria,772,Unknown Acidobacteria,#6d597a,1
+OTU-18608,Bacteria,Acidobacteria,Subgroup 6,uncultured bacterium,,,,Acidobacteria,1078,Unknown Acidobacteria,#6d597a,1
+OTU-424,Bacteria,Acidobacteria,Subgroup 6,uncultured bacterium,,,,Acidobacteria,1006,Unknown Acidobacteria,#6d597a,1
+OTU-104,Bacteria,Proteobacteria,Deltaproteobacteria,Syntrophobacterales,Syntrophaceae,Desulfobacca,Ambiguous_taxa,Deltaproteobacteria,2904,Desulfobacca,#ffd673,7
+OTU-687,Bacteria,Proteobacteria,Alphaproteobacteria,Reyranellales,Reyranellaceae,Reyranella,Ambiguous_taxa,Alphaproteobacteria,1160,Reyranella,#4d908e,3
+OTU-1656,Bacteria,Proteobacteria,Alphaproteobacteria,Acetobacterales,Acetobacteraceae,uncultured,uncultured soil bacterium,Alphaproteobacteria,795,Unknown Alphaproteobacteria,#4d908e,3
+OTU-740,Bacteria,Proteobacteria,Alphaproteobacteria,Reyranellales,Reyranellaceae,uncultured,Ambiguous_taxa,Alphaproteobacteria,1112,Unknown Alphaproteobacteria,#4d908e,3
+OTU-334,Bacteria,Proteobacteria,Alphaproteobacteria,Azospirillales,Azospirillaceae,Skermanella,Ambiguous_taxa,Alphaproteobacteria,678,Skermanella,#4d908e,3
+OTU-86,Bacteria,Proteobacteria,Alphaproteobacteria,Acetobacterales,Acetobacterales Incertae Sedis,uncultured,Ambiguous_taxa,Alphaproteobacteria,1539,Unknown Alphaproteobacteria,#4d908e,3
+OTU-190,Bacteria,Proteobacteria,Alphaproteobacteria,Rhodospirillales,Rhodopirillaceae,Defluviicoccus,uncultured bacterium,Alphaproteobacteria,2480,Defluviicoccus,#4d908e,3
+OTU-3075,Bacteria,Proteobacteria,Alphaproteobacteria,Thalassobaculales,Thalassobaculaceae,Thalassobaculum,Ambiguous_taxa,Alphaproteobacteria,603,Thalassobaculum,#4d908e,3
+OTU-227,Bacteria,Proteobacteria,Alphaproteobacteria,Thalassobaculales,Thalassobaculaceae,Thalassobaculum,Ambiguous_taxa,Alphaproteobacteria,577,Thalassobaculum,#4d908e,3
+OTU-547,Bacteria,Proteobacteria,Alphaproteobacteria,Rhodospirillales,Magnetospiraceae,uncultured,Ambiguous_taxa,Alphaproteobacteria,852,Unknown Alphaproteobacteria,#4d908e,3
+OTU-229,Bacteria,Proteobacteria,Alphaproteobacteria,Rhodospirillales,uncultured,uncultured Rhodospirillaceae bacterium,,Alphaproteobacteria,4586,Unknown Alphaproteobacteria,#4d908e,3
+OTU-181,Bacteria,Proteobacteria,Alphaproteobacteria,Sneathiellales,Sneathiellaceae,Ferrovibrio,uncultured bacterium,Alphaproteobacteria,1111,Ferrovibrio,#4d908e,3
+OTU-136,Bacteria,Proteobacteria,Alphaproteobacteria,Micropepsales,Micropepsaceae,uncultured,Ambiguous_taxa,Alphaproteobacteria,2126,Unknown Alphaproteobacteria,#4d908e,3
+OTU-19704,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingoaurantiacus,uncultured bacterium,Alphaproteobacteria,833,Sphingoaurantiacus,#4d908e,3
+OTU-6,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Brevundimonas,Ambiguous_taxa,Alphaproteobacteria,18908,Brevundimonas,#4d908e,3
+OTU-14931,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Ambiguous_taxa,Ambiguous_taxa,Alphaproteobacteria,933,Unknown Alphaproteobacteria,#4d908e,3
+OTU-350,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,uncultured,Ambiguous_taxa,Alphaproteobacteria,1264,Unknown Alphaproteobacteria,#4d908e,3
+OTU-70124,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Brevundimonas,Ambiguous_taxa,Alphaproteobacteria,3341,Brevundimonas,#4d908e,3
+OTU-10407,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Brevundimonas,Ambiguous_taxa,Alphaproteobacteria,20769,Brevundimonas,#4d908e,3
+OTU-10847,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Brevundimonas,Brevundimonas sp.,Alphaproteobacteria,1821,Brevundimonas,#4d908e,3
+OTU-2390,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Brevundimonas,Ambiguous_taxa,Alphaproteobacteria,3116,Brevundimonas,#4d908e,3
+OTU-148,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Phenylobacterium,Ambiguous_taxa,Alphaproteobacteria,3979,Phenylobacterium,#4d908e,3
+OTU-2445,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Phenylobacterium,Ambiguous_taxa,Alphaproteobacteria,1322,Phenylobacterium,#4d908e,3
+OTU-5369,Bacteria,Proteobacteria,Alphaproteobacteria,Caulobacterales,Caulobacteraceae,Phenylobacterium,uncultured Caulobacteraceae bacterium,Alphaproteobacteria,1157,Phenylobacterium,#4d908e,3
+OTU-23,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingomonas,uncultured bacterium,Alphaproteobacteria,36118,Sphingomonas,#4d908e,3
+OTU-1551,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingomonas,uncultured alpha proteobacterium,Alphaproteobacteria,1357,Sphingomonas,#4d908e,3
+OTU-54534,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingomonas,uncultured bacterium,Alphaproteobacteria,1982,Sphingomonas,#4d908e,3
+OTU-569,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingomonas,Ambiguous_taxa,Alphaproteobacteria,5556,Sphingomonas,#4d908e,3
+OTU-60671,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,uncultured,uncultured Sphingomonadaceae bacterium,Alphaproteobacteria,5721,Unknown Alphaproteobacteria,#4d908e,3
+OTU-19152,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingomonas,uncultured bacterium,Alphaproteobacteria,917,Sphingomonas,#4d908e,3
+OTU-1313,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingomonas,uncultured Sphingosinicella sp.,Alphaproteobacteria,1361,Sphingomonas,#4d908e,3
+OTU-17126,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,uncultured,Sphingosinicella sp. YJ22,Alphaproteobacteria,9484,Unknown Alphaproteobacteria,#4d908e,3
+OTU-2461,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Altererythrobacter,Ambiguous_taxa,Alphaproteobacteria,767,Altererythrobacter,#4d908e,3
+OTU-16,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Altererythrobacter,uncultured bacterium,Alphaproteobacteria,6055,Altererythrobacter,#4d908e,3
+OTU-168,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Altererythrobacter,Ambiguous_taxa,Alphaproteobacteria,1191,Altererythrobacter,#4d908e,3
+OTU-35999,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Altererythrobacter,uncultured Erythrobacteraceae bacterium,Alphaproteobacteria,1525,Altererythrobacter,#4d908e,3
+OTU-100,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingopyxis,uncultured Sphingomonas sp.,Alphaproteobacteria,2991,Sphingopyxis,#4d908e,3
+OTU-373,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingobium,uncultured Sphingomonas sp.,Alphaproteobacteria,3007,Sphingobium,#4d908e,3
+OTU-15981,Bacteria,Proteobacteria,Alphaproteobacteria,Sphingomonadales,Sphingomonadaceae,Sphingomonas,uncultured bacterium,Alphaproteobacteria,935,Sphingomonas,#4d908e,3
+OTU-45,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Pseudochrobactrum,Ambiguous_taxa,Alphaproteobacteria,5561,Pseudochrobactrum,#4d908e,3
+OTU-53752,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Ochrobactrum,uncultured Ochrobactrum sp.,Alphaproteobacteria,652,Ochrobactrum,#4d908e,3
+OTU-5733,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Ochrobactrum,Ochrobactrum pseudogrignonense,Alphaproteobacteria,646,Ochrobactrum,#4d908e,3
+OTU-60945,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Ochrobactrum,Ochrobactrum sp. MVSV6,Alphaproteobacteria,532,Ochrobactrum,#4d908e,3
+OTU-2864,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Ambiguous_taxa,Ambiguous_taxa,Alphaproteobacteria,1318,Unknown Alphaproteobacteria,#4d908e,3
+OTU-10822,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Ensifer,Sinorhizobium sp. DAH2-10,Alphaproteobacteria,1879,Ensifer,#4d908e,3
+OTU-26284,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium,Ambiguous_taxa,Alphaproteobacteria,1139,Rhizobium,#4d908e,3
+OTU-167,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Ambiguous_taxa,Ambiguous_taxa,Alphaproteobacteria,4956,Unknown Alphaproteobacteria,#4d908e,3
+OTU-1673,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium,Ambiguous_taxa,Alphaproteobacteria,1858,Rhizobium,#4d908e,3
+OTU-757,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Ensifer,Ambiguous_taxa,Alphaproteobacteria,4381,Ensifer,#4d908e,3
+OTU-30,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Mesorhizobium,Ambiguous_taxa,Alphaproteobacteria,9741,Mesorhizobium,#4d908e,3
+OTU-27,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Devosiaceae,Devosia,Ambiguous_taxa,Alphaproteobacteria,4724,Devosia,#4d908e,3
+OTU-261,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Devosiaceae,Devosia,Ambiguous_taxa,Alphaproteobacteria,1006,Devosia,#4d908e,3
+OTU-67734,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Devosiaceae,Devosia,uncultured bacterium,Alphaproteobacteria,2415,Devosia,#4d908e,3
+OTU-52161,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Devosiaceae,Devosia,Ambiguous_taxa,Alphaproteobacteria,2101,Devosia,#4d908e,3
+OTU-5326,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Devosiaceae,Devosia,Ambiguous_taxa,Alphaproteobacteria,1103,Devosia,#4d908e,3
+OTU-776,Bacteria,Proteobacteria,Alphaproteobacteria,Rhodobacterales,Rhodobacteraceae,uncultured,uncultured bacterium,Alphaproteobacteria,4712,Unknown Alphaproteobacteria,#4d908e,3
+OTU-4417,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Rhizobiaceae,Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium,Ambiguous_taxa,Alphaproteobacteria,724,Rhizobium,#4d908e,3
+OTU-1408,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Hyphomicrobiaceae,Pedomicrobium,Ambiguous_taxa,Alphaproteobacteria,1180,Pedomicrobium,#4d908e,3
+OTU-412,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Xanthobacteraceae,Bradyrhizobium,Ambiguous_taxa,Alphaproteobacteria,1918,Bradyrhizobium,#4d908e,3
+OTU-589,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Xanthobacteraceae,Pseudolabrys,Ambiguous_taxa,Alphaproteobacteria,781,Pseudolabrys,#4d908e,3
+OTU-512,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Beijerinckiaceae,Bosea,Ambiguous_taxa,Alphaproteobacteria,1301,Bosea,#4d908e,3
+OTU-47,Bacteria,Proteobacteria,Alphaproteobacteria,Rhizobiales,Beijerinckiaceae,Microvirga,Ambiguous_taxa,Alphaproteobacteria,6075,Microvirga,#4d908e,3

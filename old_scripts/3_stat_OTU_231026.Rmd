@@ -1,0 +1,680 @@
+---
+title: "Statistical Analysis of OTUs"
+author: "Sarah HUET"
+date: '2023-05-17'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(emmeans)
+library(gdata)
+
+
+
+# load work space data
+load(".RData")
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# Filter most abundant OTUs
+
+Statistical analyses of OTUs abundances were focused on the most abundant OTUs in microcosms. Briefly, low-abundance OTUs were filtered out of the count table by keeping OTUs that (i) represented > 0.1% of the sequences in at least ten samples and (ii) were found in at least 60% of replicates for any given treatment, which resulted in 258 dominant OTUs. These dominant OTUs were used to build pruned trees using the ape package (Paradis & Schliep, 2019) and were visualized using the Interactive Tree of Life (iTOL) webserver (Letunic & Bork, 2021).
+
+```{r relative_abundance_filter}
+
+tmp_ps = ps_16S_micro
+# calculate OTU relative abundance
+tmp_otu_df <- as.data.frame(otu_table(tmp_ps))
+tmp_otu_relab <- apply(tmp_otu_df, 2, FUN=function(x) x/sum(x)*100)
+# sum for each OTU the number of samples where OTU relative abundance >= threshold
+tmp_relab_thld = 0.1
+tmp_otu_relab_thld <- apply(tmp_otu_relab, 1, FUN=function(x) sum(x>=(tmp_relab_thld)))
+# select OTUs which relative abundance is >= threshold in >= ten samples
+tmp_nb_sample = 10
+tmp_otus_fltr1 <- rownames(tmp_otu_df[which(tmp_otu_relab_thld >= tmp_nb_sample),])
+# subset selected OTUs
+tmp_ps_fltr1 <- prune_taxa(taxa_names(tmp_ps) %in% tmp_otus_fltr1, tmp_ps)
+
+# final tmp_ps_fltr1: 121 samples & 259 OTUs
+
+```
+
+```{r prevalence_filter}
+
+tmp_ps = tmp_ps_fltr1
+# calculate OTUs prevalence (i.e., presence in samples for each treatment)
+tmp_otu_df <- psmelt(tmp_ps) %>%
+  select(OTU,sample,Abundance,treatment)
+tmp_otu_df[,"presence"] <- ifelse(tmp_otu_df$Abundance >0,1,0)
+tmp_otu_prev <- tmp_otu_df %>%
+  dplyr::group_by(OTU,treatment) %>%
+  dplyr::summarise(presence_sum = sum(presence),
+                   nb_sample = n()) %>%
+  ungroup()
+tmp_otu_prev[,"prevalence"] <- tmp_otu_prev$presence_sum / tmp_otu_prev$nb_sample
+# select OTUs >= prevalence threshold
+tmp_prev_thld = 0.6
+tmp_otus_fltr2 <- unique(tmp_otu_prev$OTU[tmp_otu_prev$prevalence >= tmp_prev_thld])
+# subset selected OTUs
+ps_16S_fltr <- prune_taxa(taxa_names(tmp_ps) %in% tmp_otus_fltr2, tmp_ps)
+
+# final ps_16S_fltr: 121 samples & 258 OTUs
+
+```
+
+# Effect of coalescence treatments
+
+To estimate the effect of each treatment on each OTU abundance, we used a generalized linear mixed model. Considering that an OTU of abundance Y, in any j replicates of any i treatment, follows a Poisson distribution of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, we used the following model:
+
+$$\log(\Lambda_{ij}) = o_{ij} + \mu + \gamma_i + Z_{ij},\ Z_{{ij}_{1\le j\le10}} \ iid \sim \mathcal{N} (0,\sigma^2) \ (3)$$
+
+where $i=\left\{0,\ldots,12\right\}$ represents the non-coalesced control and the coalescence treatments, $j=\left\{1,\ldots,10\right\}$ represents the replicates, $\gamma$ is the fixed effect of the treatments, o is the offset for each sample calculated as the log of the sample read sum and Z is the random sampling effect modelling the data overdispersion. The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Each model was tested against a null model (i.e., a model without the effect of the treatments) using likelihood-ratio test and p-value were corrected using a Bonferroni correction (adjusted Chi square p-value $\le$ 0.05). Subsequently, we implemented multiple pairwise comparisons on significative models with the emmeans function of the emmeans package (version 1.6.1) and p-values were corrected using a Bonferroni correction (p-value $\le$ 0.05).
+
+```{r loop}
+
+tmp_ps = ps_16S_fltr
+
+# define model variables
+## treatments
+tmp_g = tmp_ps@sam_data$treatment
+## offset
+tmp_o = log(sample_sums(tmp_ps))
+## random effect
+tmp_z = tmp_ps@sam_data$sample
+
+# global df
+tmp_glmer_sum_global = tibble()
+tmp_emmeans_sum_global = tibble()
+
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  print(paste0(tmp_i,": ",tmp_OTU))
+  
+  # response variable
+  tmp_y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  
+  tmp_glmer1 <- glmer(tmp_y ~ -1 + tmp_g + (1 | tmp_z),family='poisson', offset = tmp_o)
+  tmp_glmer0 <- glmer(tmp_y ~ 1 + (1 | tmp_z),family='poisson', offset = tmp_o)
+  
+  # LRT
+  tmp_LRT <- 2*(logLik(tmp_glmer1)[1] - logLik(tmp_glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # model summary
+    tmp_glmer_sum = summary(tmp_glmer1)$coefficients
+    tmp_glmer_sum = tibble("OTU"= tmp_OTU,
+                           "treatment"=rownames(tmp_glmer_sum),
+                           as_tibble(tmp_glmer_sum))
+    
+    # multiple comparaison
+    tmp_emmeans = emmeans(tmp_glmer1,pairwise~tmp_g,adjust="none")
+    ## select p value
+    tmp_emmeans_sum = summary(tmp_emmeans)
+    tmp_emmeans_sum = tmp_emmeans_sum[["contrasts"]]
+    ## wrangle summary
+    tmp_df = tmp_emmeans_sum
+    tmp = unlist(strsplit(as.character(tmp_df$contrast)," - "))
+    tmp_df[,"g1"] <- tmp[seq(1,length(tmp),by=2)]
+    tmp_df[,"g2"] <- tmp[seq(2,length(tmp),by=2)]
+    # tmp_df = tmp_df[tmp_df$g1 == "C",] # keep only comparison to control
+    tmp_emmeans_sum = cbind("OTU"=tmp_OTU,tmp_df)
+    
+    rm(tmp_emmeans,tmp,tmp_df)
+    
+    }
+  
+  # global df
+  tmp_glmer_sum_global = rbind(tmp_glmer_sum_global,tmp_glmer_sum)
+  tmp_emmeans_sum_global = rbind(tmp_emmeans_sum_global,tmp_emmeans_sum)
+
+}
+
+
+# bonferroni p-val correction : 258 OTUs * 78 comparisons
+tmp_emmeans_sum_global[,"pval_adjust"] <- p.adjust(tmp_emmeans_sum_global$p.value, method = "bonferroni")
+
+stat_otu_emmeans = tmp_emmeans_sum_global
+stat_otu_glmer = tmp_glmer_sum_global
+
+```
+
+A loglikelihood ratio test was applied when the OTU had a null abundance in one treatment and a median abundance higher or equal to 5 in the compared treatment (see code available online).
+
+```{r apply median filter for comparisons with C}
+
+
+# set median threshold
+tmp_thrld = 5
+
+# calculate sum & median abundance by treatment for each OTU
+tmp_psmelt = psmelt(ps_16S_fltr) %>%
+  select("OTU","sample","treatment","Abundance")
+tmp_abund <- tmp_psmelt %>%
+  dplyr::group_by(OTU,treatment) %>%
+  dplyr::summarise(abund_sum = sum(Abundance),
+                   abund_median = median(Abundance)) %>%
+  ungroup()
+# which OTUs have an abundance sum =0 in any treatment
+tmp_OTUs =  unique(tmp_abund$OTU[tmp_abund$abund_sum == 0])
+# for each of these OTUs, apply a LRT when abundance =0 in one treatment and abundance median >= 5 in another treatment
+tmp_loop_df = stat_otu_emmeans
+for (tmp_OTU in tmp_OTUs) {
+  tmp_data = tmp_abund[tmp_abund$OTU == tmp_OTU,]
+  
+  # abundance in C
+  tmp_abund_C = tmp_data[tmp_data$treatment == "C",]
+  
+  if (tmp_abund_C$abund_sum == 0) {
+    # in which treatment median abundance >= 5
+    tmp_ttts = tmp_data$treatment[tmp_data$abund_median >= tmp_thrld]
+    
+    for (tmp_ttt in tmp_ttts) {
+      
+      # abundance in samples
+      tmp1 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == "C"]
+      tmp2 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == tmp_ttt]
+      
+      # LRT
+      tmp_logLik1 <- sum(dpois(tmp1,mean(tmp1), log=TRUE)) +
+        sum(dpois(tmp2,mean(tmp2), log=TRUE))
+      tmp_logLik0 <- sum(dpois(c(tmp1,tmp2), mean(c(tmp1,tmp2)), log=TRUE)) 
+      tmp_LRT <- 2*(tmp_logLik1 - tmp_logLik0)
+      tmp_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE)
+      
+      # change p-value in table
+      tmp_loop_df$pval_adjust[tmp_loop_df$OTU == tmp_OTU & tmp_loop_df$contrast == paste0("C - ",tmp_ttt)] <- tmp_pchisq
+      
+    }
+
+    
+    
+  }
+  
+  if (tmp_abund_C$abund_median >= tmp_thrld) {
+    # in which treatment abundance =0
+    tmp_ttts = tmp_data$treatment[tmp_data$abund_sum ==0]
+    
+    for (tmp_ttt in tmp_ttts) {
+      
+      # abundance in samples
+      tmp1 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == "C"]
+      tmp2 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == tmp_ttt]
+      
+      # LRT
+      tmp_logLik1 <- sum(dpois(tmp1,mean(tmp1), log=TRUE)) +
+        sum(dpois(tmp2,mean(tmp2), log=TRUE))
+      tmp_logLik0 <- sum(dpois(c(tmp1,tmp2), mean(c(tmp1,tmp2)), log=TRUE)) 
+      tmp_LRT <- 2*(tmp_logLik1 - tmp_logLik0)
+      tmp_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE)
+      
+      # change p-value in table
+      tmp_loop_df$pval_adjust[tmp_loop_df$OTU == tmp_OTU & tmp_loop_df$contrast == paste0("C - ",tmp_ttt)] <- tmp_pchisq
+      
+    }
+    
+  }
+  
+}
+
+stat_otu_emmeans_fltr = tmp_loop_df
+
+
+
+
+
+```
+
+```{r write tree: heatmap OTU estimates, comparison with control}
+
+tmp_df0 = stat_otu_emmeans_fltr
+tmp_ps = ps_16S_fltr
+
+# select data
+tmp_data = na.omit(tmp_df0) # remove OTUs for which model didnt work
+tmp_data = tmp_data[tmp_data$g1 == "C",]
+
+# create heatmap column
+tmp_data[,"heatmap"] <- 0
+tmp_data$heatmap <- ifelse(tmp_data$pval_adjust <= 0.05,
+                           - tmp_data$estimate,0) # inverse to have ttt-C
+# select data
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "signif_comp"= tmp_data$g2,
+                  "heatmap"= tmp_data$heatmap) 
+
+
+# add missing otu
+tmp_OTUs = setdiff(taxa_names(tmp_ps),unique(tmp_data$OTU))
+
+for (tmp_OTU in tmp_OTUs) {
+  
+  tmp_df = tibble("OTU"= rep(tmp_OTU,12),
+                  "signif_comp"= sort(unique(tmp_data$signif_comp)),
+                  "heatmap"= rep(0,length(unique(tmp_data$signif_comp))))
+  
+  tmp_data <- rbind(tmp_data,tmp_df)
+  
+}
+
+# set max values -6 and 6
+tmp_data$heatmap <- ifelse(tmp_data$heatmap < -6,-6,tmp_data$heatmap)
+tmp_data$heatmap <- ifelse(tmp_data$heatmap > 6,6,tmp_data$heatmap)
+
+# nb of OTUs pos and neg
+length(unique(tmp_data$OTU[tmp_data$heatmap >0]))
+length(unique(tmp_data$OTU[tmp_data$heatmap <0]))
+
+# wrangle data
+tmp_heatmap <- pivot_wider(tmp_data,names_from = signif_comp, values_from = heatmap)
+tmp_heatmap <- tmp_heatmap[,c("OTU",sort(unique(tmp_data$signif_comp)))]
+
+# extract data
+#write.csv(tmp_heatmap,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+# COLOR_MIN,#3399FF / COLOR_MAX,#FF3366
+
+```
+
+# Effect of community properties
+
+To estimate the effect of the community properties on each OTU abundance, we calculated the property F-values using ANOVAs based on the following generalized linear mixed model (Equation 4). Considering that an OTU of abundance Y, in any j replicates of any coalescence treatment with a diversity, b composition and d density, follows a Poisson distribution of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, we used the following model:
+
+$$\log(\Lambda_{abdj}) = o_{abdj} + \mu + \alpha_a + \beta_b + \delta_d + (\alpha\beta_{ab}) + (\alpha\delta_{ad}) + (\beta\delta_{bd}) + (\alpha\beta\delta_{abd}) + Z_{abdj},\ Z_{{abdj}_{1 \le j \le 10}} \ iid \sim \mathcal{N} (0,\sigma^2) \ (4)$$
+
+where $a=\left\{1,2\right\}$ represents the diversity, $b=\left\{1,2\right\}$ represents the composition, $d=\left\{1,2,3\right\}$ represents the density, $j=\left\{1,\ldots,10\right\}$ represents the replicates, $\alpha$, $\beta$, $\delta$ are the fixed effects of the diversity, composition and density of the manipulated communities, respectively, and their interactions, o is the offset for each sample calculated as the log of the sample read sum and Z is the random sampling effect modelling the data overdispersion. The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Each model was tested against a null model (i.e., a model without the effect of the treatments) using likelihood-ratio test and p-value were corrected using a Bonferroni correction (adjusted Chi square p-value $\le$ 0.05).
+
+```{r loop_pct_expl_var}
+
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+
+# define model variables
+## treatments
+a = tmp_ps@sam_data$incub
+b = tmp_ps@sam_data$broth
+d = tmp_ps@sam_data$density
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z <- tmp_ps@sam_data$sample
+
+# global df
+tmp_global = tibble()
+
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  #tmp_i = which(taxa_names(tmp_ps) == "OTU-45")
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  # models
+  glmer3 <- glmer(y ~ a*b*d + (1 | as.factor(z)),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+  
+  # LRT
+  LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+  
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # Percentage of variance explained
+    ## calculate sum of squares between groups and residual
+    tmp_aov = aov((y/o) ~ a*b*d + Error(as.factor(z)))
+    tmp_summary = summary(tmp_aov)[["Error: as.factor(z)"]][[1]]
+    tmp_summary = tibble("var"= gsub(rownames(tmp_summary),pattern = " ",replacement = ""),tmp_summary)
+    ## calculate percentage of variance explained
+    tmp_summary[,"pct_expl"] = tmp_summary$`Sum Sq` / sum(tmp_summary$`Sum Sq`) *100
+    
+    # calculate CHisq pvalue
+    tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+    tmp_pval = tibble("var"=rownames(tmp_pval),tmp_pval)
+    # join tibbles
+    tmp_val = left_join(tmp_summary,tmp_pval)
+    # add OTU in tibble
+    tmp_val = tibble("OTU"= tmp_OTU,tmp_val)
+    
+  } else {
+    tmp_val = c("a","b","d","a:b","a:d","b:d","a:b:d","Residuals")
+    tmp_val = tibble("OTU"= tmp_OTU,"var"=tmp_val,
+                     "Df"=NA,"Sum Sq"=NA,"Mean Sq"=NA,"F value"=NA,"Pr(>F)"=NA,
+                     "pct_expl"=0,"Chisq"=NA,"Pr(>Chisq)"=NA)
+  }
+  
+  # global df
+  tmp_global = rbind(tmp_global,tmp_val)
+  
+  print(tmp_i)
+
+}
+
+# bonferroni p-val correction: 258 OTUs * (3 factor main effects + 4 factor interactions)
+tmp_global[,"bonferroni"] <- p.adjust(tmp_global$`Pr(>Chisq)`,method = "bonferroni")
+# F values for significant variables
+tmp_global[,"sgnf_fval"] <- ifelse(tmp_global$bonferroni <= 0.05,tmp_global$`F value`,0)
+# percentage of explained variance for significant variables
+tmp_global[,"sgnf_pct_expl"] <- ifelse(tmp_global$bonferroni <= 0.05,tmp_global$pct_expl,0)
+
+
+stat_otu_aov_o = tmp_global
+
+rm(b,a,d,o,z,y,glmer3,glmer0,LRT,tmp_LRT_pchisq,tmp_aov,tmp_pval,tmp_val)
+
+```
+
+```{r write tree multibar: % var expl of significant variables}
+
+tmp_data = stat_otu_aov_o
+# subset data
+tmp_data <- tmp_data %>%
+  dplyr::filter(var != "Residuals")
+
+# select data
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "var"= tmp_data$var,
+                  "sgnf_pct_expl"= tmp_data$sgnf_pct_expl)
+
+# change NAs with zeros
+tmp_data$sgnf_pct_expl[is.na(tmp_data$sgnf_pct_expl)] <- 0
+
+# wrangle data
+tmp_data <- tidyr::pivot_wider(tmp_data,names_from = var, values_from = sgnf_pct_expl)
+
+# write csv
+write.csv(tmp_data,file = "Data/itol_stat_otu_aov.csv",quote = F,row.names = F)
+
+```
+
+# q1 & q2 : compare results for OTUs
+
+
+```{r var_expl_by_diff_abund}
+
+# which OTUs are affected by coal
+tmp_df1 = stat_otu_emmeans_fltr %>% 
+  filter(g1 == "C" & pval_adjust <= 0.05) %>%
+  mutate(
+    sign_comp = case_when(
+      # /!\ up = estimates <0
+      estimate <0 ~ "up",
+      estimate >0 ~ "down"
+      )
+    ) %>%
+  select(OTU,sign_comp) %>%
+  unique(.)
+  
+
+# which OTUs have signif fval
+tmp_df2 <- stat_otu_aov_o %>%
+  filter(bonferroni <= 0.05) %>%
+  select(OTU,var,sgnf_pct_expl)
+
+# how many sign_comp by var
+tmp_df <- full_join(tmp_df1,tmp_df2,by = "OTU",relationship = "many-to-many") %>%
+  na.omit(.)
+
+# plot
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+tmp_df %>%
+  dplyr::group_by(sign_comp,var) %>%
+  dplyr::summarise(mean_pct = mean(sgnf_pct_expl),
+                   sum_pct = sum(sgnf_pct_expl),
+                   median_pct = median(sgnf_pct_expl),
+                   sd_pct = sd(sgnf_pct_expl)) %>%
+  mutate(var_type = case_when(
+    var %in% c("a","b","d") ~ "main",
+    var %in% c("a:b","a:d","b:d") ~ "double",
+    var %in% c("a:b:d") ~ "triple"
+    )) %>%
+  mutate(
+    var = factor(var,levels = rev(c("a","b","d","a:b","a:d","b:d","a:b:d"))),
+    var_type = factor(var_type,levels = c("main","double","triple")),
+    sign_comp = factor(sign_comp,levels = c("up","down"))
+    ) %>%
+  ggplot() +
+  aes(x= sign_comp, y= mean_pct, fill= var)+
+  geom_bar(stat = "identity", position = "stack")+
+  scale_fill_manual(values = tmp_colors)+
+  coord_flip()+
+  facet_grid(sign_comp~var_type,
+             scales = "free",
+             switch = "y", 
+             space = "free_y") +
+  theme_light() 
+
+# test diff for each var between up / down
+# linear model
+tmp_lm = lm(tmp_df$sgnf_pct_expl ~ tmp_df$var*tmp_df$sign_comp, na.action = na.omit )
+summary(tmp_lm)
+# anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+
+# post hoc Tukey test
+library(agricolae)
+tmp_comp <- HSD.test(tmp_aov,c("tmp_df$var","tmp_df$sign_comp"),alpha = 0.05,group = T,console = T)
+# tibble with statistical groups
+tmp_stat = tibble("groups"=rownames(tmp_comp[["groups"]]),
+                  "mean"=tmp_comp[["groups"]][["tmp_df$rel_fval"]],
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+tmp_stat
+# OR
+tmp_emmeans = emmeans(tmp_lm,~c(var,sign_comp))
+test(pairs(tmp_emmeans, by = "var"), by = NULL, adjust = "bonferroni") # see adjust method?
+
+
+```
+
+
+```{r var_expl_by_impacted_taxa}
+
+# which OTUs are affected by coal
+tmp_df1 = stat_otu_emmeans_fltr %>% 
+  filter(g1 == "C" & pval_adjust <= 0.05) %>%
+  mutate(
+    sign_comp = case_when(
+      # /!\ up = estimates <0
+      estimate <0 ~ "up",
+      estimate >0 ~ "down"
+      )
+    ) %>%
+  select(OTU,sign_comp) %>%
+  unique(.)
+  
+
+# which OTUs have signif fval
+tmp_df2 <- stat_otu_aov_o %>%
+  filter(bonferroni <= 0.05) %>%
+  select(OTU,var,sgnf_pct_expl)
+
+# how many sign_comp by var
+tmp_df <- full_join(tmp_df1,tmp_df2,by = "OTU",relationship = "many-to-many") %>%
+  na.omit(.) %>%
+  # add taxo
+  left_join(.,taxtab[,c("OTU","taxa")],by="OTU") %>%
+  # summarise
+  dplyr::group_by(taxa,var) %>%
+  dplyr::summarise(mean_pct = mean(sgnf_pct_expl),
+                   sum_pct = sum(sgnf_pct_expl),
+                   median_pct = median(sgnf_pct_expl),
+                   sd_pct = sd(sgnf_pct_expl)) %>% ungroup() %>%
+  mutate(var_type = case_when(
+    var %in% c("a","b","d") ~ "main",
+    var %in% c("a:b","a:d","b:d") ~ "double",
+    var %in% c("a:b:d") ~ "triple"
+    )) %>%
+  mutate(
+    var = factor(var,levels = rev(c("a","b","d","a:b","a:d","b:d","a:b:d"))),
+    var_type = factor(var_type,levels = c("main","double","triple")),
+    taxa = factor(taxa,levels = rev(levels(reorder(taxtab$taxa,taxtab$order)))))
+
+
+# add missing taxa
+tmp_missing_taxa = as_tibble(matrix(nrow = length(setdiff(unique(taxtab$taxa),unique(tmp_df$taxa))),
+                          ncol = ncol(tmp_df)))
+colnames(tmp_missing_taxa) <- colnames(tmp_df)
+tmp_missing_taxa$taxa <- setdiff(unique(taxtab$taxa),unique(tmp_df$taxa))
+tmp_df <- tmp_df %>% rbind(tmp_missing_taxa) %>% replace_na()
+
+# plot
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+tmp_df %>%
+  ggplot() +
+  aes(x= taxa, y= mean_pct, fill= var)+
+  geom_bar(stat = "identity", position = "stack")+
+  scale_fill_manual(values = tmp_colors)+
+  coord_flip()+
+  facet_grid(taxa~var_type,
+             scales = "free",
+             switch = "y", 
+             space = "free_y") +
+  theme_light()
+
+```
+
+
+# Phylogenetic signal
+
+Phylogenetic signals were tested for the estimated effect of each coalescence treatment (Equation 3) and for the relative effect (F values) of the community properties (Equation 4) on each OTU abundance using the Pagel’s Lambda method of the phylosig function from the phytools package (version 1.5-1).
+
+```{r coalescence_treatment_effects}
+# /!\ need tmp_heatmap from {r write tree: heatmap OTU estimates, comparison with control}
+
+library(phytools)
+
+# tree
+tmp_ps = ps_16S_fltr
+tmp_tree = phy_tree(tmp_ps)
+
+# loop
+tmp_loop_df <- tibble()
+tmp_loop_df_lambda <- tibble()
+tmp_name_ttt <- colnames(tmp_heatmap)[-1]
+for (tmp_i in tmp_name_ttt) {
+  
+  # trait
+  tmp_trait = unlist(tmp_heatmap[,tmp_i])
+  names(tmp_trait) <- tmp_heatmap$OTU
+  
+  # phylo signal
+  tmp_lambda <- phytools::phylosig(tmp_tree,tmp_trait,method = "lambda",test = T,nsim = 999)
+  tmp_K <- phytools::phylosig(tmp_tree,tmp_trait,method = "K",test = T,nsim = 999)
+  
+  # extract loop data
+  tmp <- tibble("treatment"=tmp_i,
+                "method"=c("lambda","K"),
+                "phylo_sig"=c(tmp_lambda$lambda,tmp_K$K),
+                "pval"=c(tmp_lambda$P,tmp_K$P))
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  
+  # etract lmbda data
+  tmp <- tibble("treatment"=tmp_i,
+                "lambda"=tmp_lambda$lambda,
+                "LR"=2*(tmp_lambda$logL- tmp_lambda$logL0),
+                "pval"=tmp_lambda$P)
+  tmp_loop_df_lambda <- rbind(tmp_loop_df_lambda,tmp)
+  
+}
+
+# pval adjust
+tmp_loop_df[,"pval_adjust"] <- tmp_loop_df$pval * nrow(tmp_loop_df)
+tmp_loop_df[,"asterisk"] <- ifelse(tmp_loop_df$pval_adjust <= 0.05,"*","")
+tmp_loop_df_lambda[,"pval_adjust"] <- tmp_loop_df_lambda$pval * nrow(tmp_loop_df_lambda)
+tmp_loop_df_lambda[,"asterisk"] <- ifelse(tmp_loop_df_lambda$pval_adjust >= 0.05,"","*")
+
+
+# plot
+tmp_loop_df$treatment <- factor(tmp_loop_df$treatment,levels = rev(colnames(tmp_heatmap)[-1]))
+
+ggplot(tmp_loop_df) +
+ aes(x = treatment, y = phylo_sig, fill = method) +
+ geom_col(position = position_dodge(preserve = "single")) +
+ scale_fill_manual(values = c("#999999","#333333")) +
+ coord_flip() +
+ theme_light()
+
+# extract lambda data
+write.csv(tmp_loop_df_lambda,"C:/Users/srhuet/Downloads/tmp_phylosig.csv",quote = F,row.names = F)
+
+
+```
+
+```{r F_values}
+# /!\ need tmp_data from {r write tree multibar: F_value of OTU significant variables}
+
+library(phytools)
+
+# tree
+tmp_ps = ps_16S_fltr
+tmp_tree = phy_tree(tmp_ps)
+
+# loop
+tmp_loop_df <- tibble()
+tmp_loop_df_lambda <- tibble()
+tmp_name_var <- c("a","b","d","b:a","a:d","b:d","b:a:d")
+for (tmp_i in tmp_name_var) {
+  
+  # trait
+  tmp_trait = unlist(tmp_data[,tmp_i])
+  names(tmp_trait) <- tmp_data$OTU
+  
+  # phylo signal
+  tmp_lambda <- phytools::phylosig(tmp_tree,tmp_trait,method = "lambda",test = T,nsim = 999)
+  tmp_K <- phytools::phylosig(tmp_tree,tmp_trait,method = "K",test = T,nsim = 999)
+  
+  # extract loop data
+  tmp <- tibble("var"=tmp_i,
+                "method"=c("lambda","K"),
+                "phylo_sig"=c(tmp_lambda$lambda,tmp_K$K),
+                "pval"=c(tmp_lambda$P,tmp_K$P))
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  
+  # etract lmbda data
+  tmp <- tibble("var"=tmp_i,
+                "lambda"=tmp_lambda$lambda,
+                "LR"=2*(tmp_lambda$logL- tmp_lambda$logL0),
+                "pval"=tmp_lambda$P)
+  tmp_loop_df_lambda <- rbind(tmp_loop_df_lambda,tmp)
+  
+}
+
+# pval adjust
+tmp_loop_df[,"pval_adjust"] <- tmp_loop_df$pval * nrow(tmp_loop_df)
+tmp_loop_df[,"asterisk"] <- ifelse(tmp_loop_df$pval_adjust <= 0.05,"*","")
+tmp_loop_df_lambda[,"pval_adjust"] <- tmp_loop_df_lambda$pval * nrow(tmp_loop_df_lambda)
+tmp_loop_df_lambda[,"asterisk"] <- ifelse(tmp_loop_df_lambda$pval_adjust >= 0.05,"","*")
+
+
+# plot
+tmp_loop_df$var <- factor(tmp_loop_df$var,levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+
+ggplot(tmp_loop_df) +
+ aes(x = var, y = phylo_sig, fill = method) +
+ geom_col(position = position_dodge(preserve = "single")) +
+ scale_fill_manual(values = c("#999999","#333333")) +
+ coord_flip() +
+ theme_light()
+
+# extract lambda data
+write.csv(tmp_loop_df_lambda,"C:/Users/srhuet/Downloads/tmp_phylosig.csv",quote = F,row.names = F)
+
+
+```
+
+# Figures

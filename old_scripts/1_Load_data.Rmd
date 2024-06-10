@@ -1,0 +1,176 @@
+---
+title: "1_Load_data"
+author: "Sarah HUET"
+date: "2021 M03 10"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This script take biom file (QIIME pipeline output) and mapping file to gather data in phyloseq objects:
+     - ps_16S_raw & ps_18S_raw: phyloseq objects with raw data, for 16S rDNA and 18S rDNA sequences respectively
+     - ps_16S & ps_18S: phyloseq objects with cleaned data, for 16S rDNA and 18S rDNA sequences respectively
+     - ps_16S_fltr & ps_18S_most_abund: phyloseq object with filtered OTUs, for 16S rDNA and 18S rDNA sequences respectively
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(readr)
+library(readxl)
+library(dplyr)
+library(phytools)
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# Load raw biom file and clean data
+
+```{r load additional data}
+
+Colors_treatments <- read_excel("Data/Colors_treatments.xlsx")
+
+```
+
+
+```{r load raw biom file}
+
+# import biom file
+tmp_ps = import_biom("Data/otu_table.biom")
+# remove extra taxa rank
+tmp_ps@tax_table <- tmp_ps@tax_table[,1:7]
+# set taxa rank names
+colnames(tmp_ps@tax_table) <- c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+# import mapping file
+metadata_sample <- read_excel("Data/Metadata_xp2_coal_sample.xlsx")
+tmp_design = sample_data(metadata_sample)
+sample_names(tmp_design) <- tmp_design$sample
+# import tree
+tmp_tree = read.newick("Data/phylogeny.tre")
+#merge onto one phyloseq object
+ps_16S_raw = merge_phyloseq(tmp_ps,tmp_design,tmp_tree)
+
+# final ps_16S_raw: 155 samples & 3227 OTUs
+
+rm(list = names(.GlobalEnv)[grep("tmp_",names(.GlobalEnv))])
+
+```
+
+```{r clean dataset}
+
+# remove samples with seq count < tmp_rare_thld
+tmp_rare_thld = 8000
+ps_16S <- prune_samples(sample_sums(ps_16S_raw) > tmp_rare_thld, ps_16S_raw )
+ps_16S <- prune_taxa(taxa_sums(ps_16S) > 0, ps_16S)
+
+# final ps_16S 8000 : 146 samples & 3227 OTUs
+
+#remove chloroplasts /!\ only with greengenes
+#tmp_chloroplast = taxa_names(ps_16S_raw)[which(ps_16S_raw@tax_table[,"Class"] == "c__Chloroplast")]
+#ps_16S <- prune_taxa(!(taxa_names(ps_16S) %in% tmp_chloroplast), ps_16S)
+
+# check which OTUs where removed
+setdiff(taxa_names(ps_16S_raw),taxa_names(ps_16S))
+# check which samples where removed
+setdiff(sample_names(ps_16S_raw),sample_names(ps_16S))
+
+```
+
+## Split microcosm samples from suspension samples
+
+
+```{r microcosms}
+
+ps_16S_micro <- prune_samples(ps_16S@sam_data$sample_type == "microcosm",ps_16S)
+ps_16S_micro <- prune_taxa(taxa_sums(ps_16S_micro) > 0, ps_16S_micro)
+
+# final ps_16S_micro: 399 samples & 5500 OTUs
+
+```
+
+```{r original soil }
+
+ps_16S_T0 <- prune_samples(ps_16S@sam_data$sample_type == "original_soil",ps_16S)
+ps_16S_T0 <- prune_taxa(taxa_sums(ps_16S_T0) > 0, ps_16S_T0)
+
+# final ps_16S_susp: 399 samples & 5500 OTUs
+
+```
+
+```{r suspensions }
+
+ps_16S_susp <- prune_samples(ps_16S@sam_data$sample_type == "suspension",ps_16S)
+ps_16S_susp <- prune_taxa(taxa_sums(ps_16S_susp) > 0, ps_16S_susp)
+
+# final ps_16S_susp: 399 samples & 5500 OTUs
+
+# only manipulated suspensions
+ps_16S_susp_manip <- prune_samples(ps_16S_susp@sam_data$treatment != "susp_C",ps_16S_susp)
+ps_16S_susp_manip <- prune_taxa(taxa_sums(ps_16S_susp_manip) > 0, ps_16S_susp_manip)
+
+
+```
+
+
+## Filter most abundant OTUs
+
+```{r freq filter}
+
+tmp_ps = ps_16S_micro
+# calculate OTU frequency
+tmp_df_otu <- as.data.frame(otu_table(tmp_ps))
+tmp_df_otu_freq <- apply(tmp_df_otu, 2, FUN=function(x) x/sum(x)*100)
+# apply a minimum frequency threshold
+tmp_freq_thld = 0.1
+tmp <- apply(tmp_df_otu_freq, 1, FUN=function(x) sum(x>=(tmp_freq_thld)))
+# select OTUs above frequency threshold
+#tmp_otus_F1 <- rownames(tmp_df_otu[-which(tmp==0),])
+tmp_nb_sample = 10
+tmp_otus_F1 <- rownames(tmp_df_otu[which(tmp>=tmp_nb_sample),])
+# subset selected OTUs
+tmp_ps_fltr1 <- prune_taxa(taxa_names(tmp_ps) %in% tmp_otus_F1, tmp_ps)
+
+```
+
+
+```{r prevalence filter}
+# /!\ takes from 30min to 3h /!\
+
+tmp_ps = tmp_ps_fltr1
+# calculate OTUs prevalence in treatment (ttt)
+tmp_df <- psmelt(tmp_ps)
+tmp_otu_prev_ttt <- data.frame(matrix(ncol=length(unique(tmp_df$treatment)),
+                                     nrow=length(unique(tmp_df$OTU)), 
+                                     dimnames=list(unique(tmp_df$OTU),
+                                                   unique(tmp_df$treatment))))
+for (i in unique(tmp_df$OTU)) {
+  for (j in unique(tmp_df$treatment)) {
+    tmp_otu_prev_ttt[i,j] <- sum(tmp_df$Abundance[tmp_df$OTU == i & tmp_df$treatment == j] > 0,
+                                 na.rm = T) / length(tmp_df$Sample[tmp_df$OTU == i & tmp_df$treatment == j]) *100
+  }
+  
+} 
+rm(i,j)
+# calculate maximum OTUs prevalence in treatment
+tmp <- apply(tmp_otu_prev_ttt,1, FUN=function(x) max(x))
+# select OTUs above a minimum prevalence in treatment threshold set to 60% 
+tmp_otus_F2 <- rownames(tmp_otu_prev_ttt[which(tmp >= 60),])
+# subset selected OTUs
+tmp_ps_fltr2 <- prune_taxa(taxa_names(tmp_ps) %in% tmp_otus_F2, tmp_ps)
+
+ps_16S_fltr = tmp_ps_fltr2
+
+```
+
+
+# Measurement of community functions 
+
+```{r import data}
+
+data_function <- read_excel("Data/Metadata_xp2_coal_pool.xlsx")
+# remove unused treatments (treatments not in this experimental design)
+data_function = data_function[!data_function$pool %in% c(141:155),]
+
+```

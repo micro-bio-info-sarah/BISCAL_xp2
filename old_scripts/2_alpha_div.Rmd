@@ -1,0 +1,369 @@
+---
+title: "2_alpha_div"
+author: "Sarah HUET"
+date: "2021 M03 10"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+# load libraries
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(agricolae)
+library(tibble)
+
+```
+
+# load alpha diversity measurments
+
+Alpha diversity indexes were calculated with an home made Qiime pipeline implemented in Python. Here, we load the resulting dataframe.
+
+```{r wrangle data 16S}
+
+tmp_path_16S = "C:/Users/srhuet/Documents/copie_DDE_20220307/Thesis/EMFEED/BISCAL_xp2_coal/Dalton/out/collate_alpha.d/"
+
+# create a df that gather all alpha div measures
+alphadiv_16S_all <- vector("list", 1+length(list.files(path = tmp_path_16S)))
+
+for (i in list.files(path = tmp_path_16S)) {
+  
+  tmp_txt_path = paste0(tmp_path_16S,i)
+  
+  tmp_alphadiv <- read.table(tmp_txt_path,sep="\t", header=TRUE)
+  tmp_alphadiv <- tmp_alphadiv[tmp_alphadiv$sequences.per.sample == 8000,4:157]
+  
+  tmp_alphadiv <- as_tibble(tmp_alphadiv) %>% gather("sample", "value")
+  tmp_alphadiv[tmp_alphadiv$value == 'n/a',"value"] <- NA
+  tmp_alphadiv[,i] <- as.numeric(tmp_alphadiv$value)
+  
+  alphadiv_16S_all[[1]]$sample <- gsub("X","",tmp_alphadiv$sample)
+  alphadiv_16S_all[[length(which(alphadiv_16S_all != "NULL"))+1]] <- tmp_alphadiv[,i]
+  
+  #next step introduce NA. why ???
+  print(i)
+  rm(tmp_alphadiv)
+}
+
+alphadiv_16S_all <- do.call(cbind,alphadiv_16S_all)
+alphadiv_16S_all <- alphadiv_16S_all[complete.cases(alphadiv_16S_all),]
+colnames(alphadiv_16S_all) <- gsub(".txt","",colnames(alphadiv_16S_all))
+alphadiv_16S_all$sample <- as.numeric(alphadiv_16S_all$sample)
+
+# add the corresponding treatment
+alphadiv_16S_all <- full_join(alphadiv_16S_all,metadata_sample,by="sample")
+
+# add color and order
+alphadiv_16S_all <- left_join(alphadiv_16S_all,Colors_treatments,by = "treatment")
+
+alphadiv_16S_all$sample <- as.numeric(alphadiv_16S_all$sample)
+
+write.csv(alphadiv_16S_all,"Data/alphadiv_all.csv",row.names = F)
+
+```
+
+# stats
+
+## data
+```{r choose your data}
+
+# select which data you want to test
+
+tmp_sample_type = "suspension" #  microcosm| suspension  | modif_susp | all
+tmp_index = "simpson_reciprocal" # observed_species / simpson_reciprocal / PD_whole_tree
+
+```
+
+```{r wrangle data}
+
+tmp_alphadiv = alphadiv_16S_all
+tmp_alphadiv <- tmp_alphadiv[complete.cases(tmp_alphadiv),]
+
+if (tmp_sample_type == "microcosm") {
+  tmp_data <- tmp_alphadiv[tmp_alphadiv$sample_type == tmp_sample_type,] # select microcosm treatments
+}
+if (tmp_sample_type == "suspension"){
+  tmp_data <- tmp_alphadiv[tmp_alphadiv$sample_type %in% c("original_soil","suspension"),]
+}
+if (tmp_sample_type == "modif_susp"){
+  tmp_data <- tmp_alphadiv[tmp_alphadiv$sample_type =="suspension",]
+  tmp_data <- tmp_data[tmp_data$treatment != "susp_C",]
+}
+if (tmp_sample_type == "all"){
+  tmp_data <- tmp_alphadiv
+}
+
+# select the chosen index
+tmp_data <- tmp_data[,c("sample",tmp_index)]
+colnames(tmp_data)[2] <- "value"
+
+# concatenate iterations for each sample by mean
+tmp_data <- tmp_data %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(value))
+
+# add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")])
+# add color and order
+tmp_data <- left_join(tmp_data,
+                      Color_sets[Color_sets$set == "treatments",c("treatment","color","order")],
+                      by = "treatment")
+
+```
+
+```{r summarise adiv}
+
+tmp <- tmp_data %>%
+      dplyr::group_by(treatment) %>%
+  dplyr::summarise(avg = mean(value))
+
+tmp[,"diff_C"] <- 100-(tmp$avg / tmp$avg[tmp$treatment =="susp_C"] *100)
+
+tmp
+
+
+```
+
+## tests
+```{r statistic test}
+
+# linear model
+tmp_lm = lm(tmp_data$value ~ tmp_data$treatment, na.action = na.omit )
+summary(tmp_lm)
+# anova
+anova(tmp_lm)
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+# post hoc Tukey test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+# tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "mean"=tmp_comp[["groups"]][["tmp_data$value"]],
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+tmp_stat <- inner_join(tmp_stat,Colors_treatments[,c("treatment","color","order")],by = "treatment")
+
+
+```
+
+```{r barplot stat with letters, width = 5.5,height = 6}
+library(ggplot2)
+
+tmp_ylim = c(0,max(tmp_data$value)*1.2)
+#tmp_ylim = c(ceiling(min(tmp_data$value)*0.75),max(tmp_data$value)*1.2)
+tmp_ylim_stat = max(tmp_data$value)*1.1
+
+tmp_plot_data = tmp_data
+tmp_plot_stat = tmp_stat
+
+tmp_plot_stat[,"stat_y"] <- tmp_ylim_stat
+
+# plot
+p <- ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               #y = log10(value))) +
+                               y = value)) +
+  
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               linetype = 1,
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  labs(x="Treatment", y= paste0("\n",tmp_index), title = tmp_index, color = "#333333")+
+  coord_flip(ylim = tmp_ylim)+
+  #scale_y_log10()+
+  theme_bw()+
+  theme(title = element_text(face="bold", size=12),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=10), 
+        axis.text.x  = element_text(vjust=0.5, size=8,angle = 0),
+        axis.title.y = element_text(face="bold", size=10), 
+        axis.text.y  = element_text(vjust=0.5, size=8),
+        strip.text = element_text(face="bold", size=8),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  stat_summary(geom = "linerange", fun.data = mean_se, width=0.5,color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            #mapping = aes(label = stat_groups, y = stat_y*5, x=treatment),
+            mapping = aes(label = stat_groups, y = stat_y, x=treatment),
+            colour="#333333", size=8,inherit.aes = F, angle = 0,
+            position = position_nudge(x = 0))
+  
+p
+
+fig_div[[paste0(tmp_sample_type,"_",tmp_index)]] <- p
+tmp_div[[tmp_index]] <- tmp_data %>% dplyr::group_by(treatment) %>% dplyr::summarise(avg = mean(value))
+
+```
+
+
+
+
+## basic estimators
+
+```{r microcosms}
+
+# mean
+tmp_mean = tmp_data %>% group_by(treatment) %>% summarise(mean = mean(value))
+
+## mean C
+tmp_mean_C = tmp_mean$mean[tmp_mean$treatment == "C"]
+
+# diff C and min microcosm
+100-(min(tmp_mean$mean)/tmp_mean_C*100)
+
+# diff C and max microcosm
+max(tmp_mean$mean)/tmp_mean_C*100
+
+# diff and mean microcosms
+100-(mean(tmp_mean$mean)/tmp_mean_C*100)
+
+```
+
+```{r susp}
+
+# mean
+tmp_mean = tmp_data %>% group_by(treatment) %>% summarise(mean = mean(value))
+
+## mean C
+tmp_mean_C = tmp_mean$mean[tmp_mean$treatment == "susp_C"]
+
+## mean susp
+tmp_mean_susp = tmp_mean$mean[!tmp_mean$treatment %in% c("T0","susp_C")]
+min(tmp_mean_susp)
+
+
+# diff C and mean susp
+100-(mean(tmp_mean_susp)/tmp_mean_C*100)
+
+# diff C and max susp
+max(tmp_mean$mean)/tmp_mean_C*100
+
+
+
+```
+
+
+
+```{r export plot}
+
+
+ggsave(plot = p,
+       filename = "tmp_fig.svg",
+       width = 95,height = 110,units = "mm")
+
+
+
+
+
+library(officer)
+library(rvg)
+
+tmp_editable_graph <- dml(ggobj = p)
+doc <- read_pptx()
+doc <- add_slide(doc)
+doc <- ph_with(x = doc, tmp_editable_graph,
+               location = ph_location_type(type = "body") )
+print(doc, target = "tmp_fig.pptx")
+
+```
+
+from https://ardata-fr.github.io/officeverse/officer-for-powerpoint.html
+
+# SUSPENSIONS t- test vs T0
+as there is an unbalanced design and a low number of replicate for suspensions  we'll use welch t-test 
+
+we asked two questions
+(1) are the suspensions different from the original soil?
+(2) are the manipulated suspensions different between them?
+
+```{r choose your data}
+
+tmp_index = "observed_species" # , PD_whole_tree, simpson_reciprocal
+
+# select which data you want to test
+tmp_alphadiv = alphadiv_16S_all
+tmp_alphadiv <- tmp_alphadiv[complete.cases(tmp_alphadiv),]
+tmp_data <- tmp_alphadiv[tmp_alphadiv$sample_type %in% c("original_soil","suspension"),]
+# select the chosen index
+tmp_data <- tmp_data[,c("sample",tmp_index)]
+colnames(tmp_data)[2] <- "value"
+# concatenate iterations for each sample by mean
+tmp_data <- tmp_data %>% 
+  dplyr::group_by(sample) %>% 
+  dplyr::summarise(value = mean(value))
+# add treatment
+tmp_data <- left_join(tmp_data,metadata_sample[,c("sample","treatment")])
+# add color and order
+tmp_data <- left_join(tmp_data,
+                      Color_sets[Color_sets$set == "treatments",c("treatment","color","order")],
+                      by = "treatment")
+
+#####
+# COMPARISON TO T0
+#####
+tmp_value_t0 = tmp_data$value[tmp_data$treatment =="T0"]
+tmp_ttts <- unique(tmp_data$treatment)[-1]
+tmp_t.test = vector()
+tmp_names = vector()
+for (tmp_ttt in tmp_ttts) { #tmp_ttt = tmp_ttts[1]
+  # values
+  tmp_value_ttt = tmp_data$value[tmp_data$treatment == tmp_ttt]
+  # t-test
+  tmp = t.test(tmp_value_t0,tmp_value_ttt)
+  # extract p.value
+  tmp_t.test[length(tmp_t.test)+1] <- tmp$p.value
+  tmp_names[length(tmp_names)+1] = paste0("T0-",tmp_ttt)
+}
+tmp_p.adjust = tmp_t.test*length(tmp_t.test) # bonferroni correction
+## letters
+names(tmp_p.adjust) <- tmp_names
+tmp_p.adjust
+tmp_p.adjust <= 0.05
+
+#####
+# COMPARISON BETWEEN MANIPULATED SUSPENSIONS
+#####
+tmp_ttts <- unique(tmp_data$treatment)[3:6]
+tmp_t.test = vector()
+tmp_names = vector()
+for (x in 1:4) {
+  y = x+1
+  while (y <= 4) {
+    # values
+    tmp_value_x <- tmp_data$value[tmp_data$treatment == tmp_ttts[x]]
+    tmp_value_y <- tmp_data$value[tmp_data$treatment == tmp_ttts[y]]
+    # t-test
+    tmp = t.test(tmp_value_x,tmp_value_y)
+    # extract p.val
+    tmp_t.test[length(tmp_t.test)+1] <- tmp$p.value
+    tmp_names[length(tmp_names)+1] = paste0(tmp_ttts[x],"-",tmp_ttts[y])
+    # index
+    y = y+1
+  }
+}
+tmp_p.adjust = tmp_t.test*length(tmp_t.test) # bonferroni correction
+## letters
+names(tmp_p.adjust) <- tmp_names
+tmp_p.adjust
+tmp_p.adjust <= 0.05
+library(multcompView)
+tmp_letters <- multcompLetters(tmp_p.adjust,compare="<=",threshold=0.05,Letters=letters)
+tmp_letters[["Letters"]]
+
+```
+
+
+
+
+
+
+
+
+
+
+
+

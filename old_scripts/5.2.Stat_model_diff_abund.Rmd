@@ -1,0 +1,820 @@
+---
+title: "5.2.Stat_model_diff_abund"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(tibble)
+
+library(lme4)
+library(emmeans)
+
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# for OTUs
+
+## math model
+
+To estimate the effect of each treatment on each OTU abundance, we used a generalized linear mixed model. Considering that an OTU abundance Y, in any k replicates of any i treatment, follow a Poisson law of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, we used the following model:
+
+$$\log{\left(\Lambda_{il}\right)}=o_{il}+\mu+\gamma_i+Z_{il},\ \ {Z_{il}}_{1\le l\le10}\mathrm{\ iid}\sim\mathcal{N}\left(0,\sigma^2\right)\ (1)$$
+
+where:
+* $i=\left\{0,\ldots,12\right\}$ represents the treatments
+* $l={1,\ldots,10}$ represents the replicates
+* $o$ is the offset for each sample calculated as the log of the sample read sum
+* $\gamma$ is the effect of the treatments
+* $Z$ is the random sampling effect modeling the data overdispersion
+
+The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Subsequently, we performed a post-hoc Tukey test with the emmeans function of the emmeans package (version 1.6.1) implementing multiple comparisons. 
+
+## test without loop
+
+```{r variables}
+
+tmp_ps = ps_16S_fltr
+
+# define model variables
+## treatments
+g = tmp_ps@sam_data$treatment
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z = tmp_ps@sam_data$sample
+
+```
+
+```{r model}
+
+# select one OTU
+tmp_OTU = "OTU-45"
+# response variable
+y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+
+glmer1 <- glmer(y ~ -1 + g + (1 | z),family='poisson', offset = o)
+glmer0 <- glmer(y ~ 1 + (1 | z),family='poisson', offset = o)
+
+
+
+```
+
+```{r LRT}
+
+tmp_LRT <- 2*(logLik(glmer1)[1] - logLik(glmer0)[1])
+tmp_LRT
+pchisq(tmp_LRT, df=1, lower.tail=FALSE) * ntaxa(tmp_ps)
+
+```
+
+```{r summary}
+# model summary
+tmp_model_sum = summary(glmer1)$coefficients
+
+tmp_model_sum = tibble("OTU"= tmp_OTU,
+                       "treatment"=rownames(tmp_model_sum),
+                       as_tibble(tmp_model_sum))
+
+```
+
+```{r emmeans}
+
+# multiple comparaison
+tmp_emmeans = emmeans(glmer1,pairwise~g,adjust="none")
+
+## select p value
+tmp_emmeans_sum = summary(tmp_emmeans)
+tmp_emmeans_sum = tmp_emmeans_sum[["contrasts"]]
+## wrangle summary
+tmp_df = tmp_emmeans_sum
+tmp = unlist(strsplit(as.character(tmp_df$contrast)," - "))
+tmp_df[,"g1"] <- tmp[seq(1,length(tmp),by=2)]
+tmp_df[,"g2"] <- tmp[seq(2,length(tmp),by=2)]
+# tmp_df = tmp_df[tmp_df$g1 == "C",] # keep only comparison to control
+tmp_emmeans_sum = cbind("OTU"=tmp_OTU,tmp_df)
+
+# bonferroni p-val correction : 258 OTUs * 78 comparisons
+tmp_emmeans_sum[,"pval_adjust"] <- tmp_emmeans_sum$p.value * ntaxa(tmp_ps) * nrow(tmp_emmeans_sum)
+# p val significance
+tmp_emmeans_sum[,"pval_signif"] <- ifelse(tmp_emmeans_sum$pval_adjust <= 0.05,"*","")
+tmp_emmeans_sum[,"pval_signif"] <- ifelse(tmp_emmeans_sum$pval_adjust <= 0.01,"**",
+                                                 tmp_emmeans_sum$pval_signif)
+tmp_emmeans_sum[,"pval_signif"] <- ifelse(tmp_emmeans_sum$pval_adjust <= 0.001,"***",
+                                                 tmp_emmeans_sum$pval_signif)
+
+```
+
+
+```{r global df}
+
+# global df
+tmp_model_sum_global = tibble()
+tmp_emmeans_sum_global = tibble()
+
+# global df
+tmp_model_sum_global = rbind(tmp_model_sum_global,tmp_model_sum)
+tmp_emmeans_sum_global = rbind(tmp_emmeans_sum_global,tmp_emmeans_sum)
+
+# bonferroni p-val correction : 214 OTUs * 78 comparisons
+tmp_emmeans_sum_global[,"pval_adjust"] <- tmp_emmeans_sum_global$p.value * 214 * 78
+# p val significance
+tmp_emmeans_sum_global[,"pval_signif"] <- ifelse(tmp_emmeans_sum_global$pval_adjust <= 0.05,"*","")
+tmp_emmeans_sum_global[,"pval_signif"] <- ifelse(tmp_emmeans_sum_global$pval_adjust <= 0.01,"**",
+                                                 tmp_emmeans_sum_global$pval_signif)
+tmp_emmeans_sum_global[,"pval_signif"] <- ifelse(tmp_emmeans_sum_global$pval_adjust <= 0.001,"***",
+                                                 tmp_emmeans_sum_global$pval_signif)
+
+
+```
+
+```{r empty summary}
+
+# empty model summary
+
+      tmp_ttt = c("gC","gMAC_a1d1","gMAC_a1d2","gMAC_a1d3","gMAC_a2d1","gMAC_a2d2","gMAC_a2d3",
+                  "gPEB_a1d1","gPEB_a1d2","gPEB_a1d3","gPEB_a2d1","gPEB_a2d2","gPEB_a2d3")
+      tmp_model_sum = tibble("OTU"= rep(tmp_OTU,length(tmp_ttt)),
+                             "treatment"=tmp_ttt,
+                             "Estimate"=rep(NA,length(tmp_ttt)),
+                             "Std. Error"=rep(NA,length(tmp_ttt)),
+                             "z value"=rep(NA,length(tmp_ttt)),
+                             "Pr(>|z|)"=rep(1,length(tmp_ttt)))
+      
+      # empty emmeans summary
+      
+      
+      
+```
+
+```{r remove}
+
+rm(tmp_ps,g,o,z,tmp_model_sum_global,tmp_emmeans_sum_global)
+rm(tmp_emmeans,tmp,tmp_df)
+rm(y,glmer1,glmer0,tmp_LRT,tmp_LRT_pchisq,
+     tmp_model_sum,tmp_emmeans_sum,tmp_OTU)
+
+```
+
+## loop
+
+```{r loop}
+
+rm(tmp_ps,g,o,z,tmp_model_sum_global,tmp_emmeans_sum_global)
+
+tmp_ps = ps_16S_fltr
+
+# define model variables
+## treatments
+g = tmp_ps@sam_data$treatment
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z = tmp_ps@sam_data$sample
+
+# global df
+tmp_model_sum_global = tibble()
+tmp_emmeans_sum_global = tibble()
+
+
+
+
+for (i in 1:ntaxa(tmp_ps)) {
+  
+  tmp_OTU = taxa_names(tmp_ps)[i]
+  print(i)
+  
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  
+  glmer1 <- glmer(y ~ -1 + g + (1 | z),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | z),family='poisson', offset = o)
+  
+  # LRT
+  tmp_LRT <- 2*(logLik(glmer1)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # model summary
+    tmp_model_sum = summary(glmer1)$coefficients
+    tmp_model_sum = tibble("OTU"= tmp_OTU,
+                           "treatment"=rownames(tmp_model_sum),
+                           as_tibble(tmp_model_sum))
+    
+    # multiple comparaison
+    tmp_emmeans = emmeans(glmer1,pairwise~g,adjust="none")
+    ## select p value
+    tmp_emmeans_sum = summary(tmp_emmeans)
+    tmp_emmeans_sum = tmp_emmeans_sum[["contrasts"]]
+    ## wrangle summary
+    tmp_df = tmp_emmeans_sum
+    tmp = unlist(strsplit(as.character(tmp_df$contrast)," - "))
+    tmp_df[,"g1"] <- tmp[seq(1,length(tmp),by=2)]
+    tmp_df[,"g2"] <- tmp[seq(2,length(tmp),by=2)]
+    # tmp_df = tmp_df[tmp_df$g1 == "C",] # keep only comparison to control
+    tmp_emmeans_sum = cbind("OTU"=tmp_OTU,tmp_df)
+    
+    rm(tmp_emmeans,tmp,tmp_df)
+    
+    } else {
+      # empty model summary
+      tmp_model_sum = tibble("OTU"=tmp_OTU,
+                             "treatment"=NA,
+                             "Estimate"=NA,
+                             "Std. Error"=NA,
+                             "z value"=NA,
+                             "Pr(>|z|)"=1)
+
+      
+      # empty emmeans summary
+      tmp_emmeans_sum = tibble("OTU"=tmp_OTU,
+                               "contrast"=NA,
+                               "estimate"=NA,
+                               "SE"=NA,
+                               "df"=NA,
+                               "z.ratio"=NA,
+                               "p.value"=1,
+                               "g1"=NA,
+                               "g2"=NA)
+  }
+  
+  # global df
+  tmp_model_sum_global = rbind(tmp_model_sum_global,tmp_model_sum)
+  tmp_emmeans_sum_global = rbind(tmp_emmeans_sum_global,tmp_emmeans_sum)
+  
+  # remove temporary df
+  rm(y,glmer1,glmer0,tmp_LRT,tmp_LRT_pchisq,
+     tmp_model_sum,tmp_emmeans_sum,tmp_OTU)
+
+}
+
+
+# bonferroni p-val correction : 214 OTUs * 78 comparisons
+tmp_emmeans_sum_global[,"pval_adjust"] <- tmp_emmeans_sum_global$p.value * ntaxa(tmp_ps) * 78
+# p val significance
+tmp_emmeans_sum_global[,"pval_signif"] <- ifelse(tmp_emmeans_sum_global$pval_adjust <= 0.05,"*","")
+tmp_emmeans_sum_global[,"pval_signif"] <- ifelse(tmp_emmeans_sum_global$pval_adjust <= 0.01,"**",
+                                                 tmp_emmeans_sum_global$pval_signif)
+tmp_emmeans_sum_global[,"pval_signif"] <- ifelse(tmp_emmeans_sum_global$pval_adjust <= 0.001,"***",
+                                                 tmp_emmeans_sum_global$pval_signif)
+
+#stat_q2_otu_comparison_sum = tmp_emmeans_sum_global
+#stat_q2_otu_model_sum = tmp_model_sum_global
+
+```
+
+## median filter
+
+For the specific case where one treatment has a null abundance, we add a specific filter: for each OTU, comparisons between a treatment with a null abundance and a treatment with a median abundance higher or equal to 5, were considered significant.
+
+```{r apply median filter for comparisons with C}
+
+tmp_df.signif = stat_q2_otu_comparison_sum
+tmp_df.signif = tmp_df.signif[tmp_df.signif$g1 == "C",] # keep only comparisons with C
+tmp_df.signif <- na.omit(tmp_df.signif)
+tmp_ps0 = ps_16S_fltr
+
+# set threshold "tmp_thrld" 
+tmp_thrld = 5
+#calculate sum & median abundance by treatment for each OTU
+tmp0 = psmelt(tmp_ps0)
+tmp = tmp0[,c("OTU","treatment","Abundance")]  
+tmp_abund_by_ttt = as_tibble(tmp %>% group_by(OTU,treatment) %>% summarise(sum=sum(Abundance)))
+tmp_median_by_ttt = as_tibble(tmp %>% group_by(OTU,treatment) %>% summarise(median=median(Abundance)))
+tmp_abund_by_ttt = left_join(tmp_abund_by_ttt,tmp_median_by_ttt)
+tmp_abund_by_ttt$treatment <- as.character(tmp_abund_by_ttt$treatment)
+
+# keep comparisons where 1 ttt have a abundance = 0 and the other ttt have a median abundance >= tmp_thrld
+for (tmp_OTU in tmp_df.signif$OTU) {
+  tmp_df.signif[tmp_df.signif$OTU == tmp_OTU &
+                  tmp_df.signif$g2 %in% tmp_abund_by_ttt$treatment[tmp_abund_by_ttt$OTU == tmp_OTU &
+                                                                    tmp_abund_by_ttt$sum == 0] &
+                  tmp_df.signif$g1 %in% tmp_abund_by_ttt$treatment[tmp_abund_by_ttt$OTU == tmp_OTU &
+                                                                    tmp_abund_by_ttt$median >= tmp_thrld]
+                ,"pval_adjust"] <- 0
+  tmp_df.signif[tmp_df.signif$OTU == tmp_OTU & 
+                  tmp_df.signif$g1 %in% tmp_abund_by_ttt$treatment[tmp_abund_by_ttt$OTU == tmp_OTU &
+                                                                    tmp_abund_by_ttt$sum == 0] &
+                  tmp_df.signif$g2 %in% tmp_abund_by_ttt$treatment[tmp_abund_by_ttt$OTU == tmp_OTU &
+                                                                    tmp_abund_by_ttt$median >= tmp_thrld]
+                ,"pval_adjust"] <- 0
+  }
+# nb of pval <= 0.05 before and after filter
+table(stat_q2_otu_comparison_sum$contrast[stat_q2_otu_comparison_sum$g1 == "C" & 
+                                  stat_q2_otu_comparison_sum$pval_adjust <= 0.05])
+table(tmp_df.signif$contrast[tmp_df.signif$pval_adjust <= 0.05])
+# nb of OTU with a pval <= 0.05 before and after filter
+tmp_otu1 = unique(stat_q2_otu_comparison_sum$OTU[stat_q2_otu_comparison_sum$g1 == "C" & 
+                                                    stat_q2_otu_comparison_sum$pval_adjust <= 0.05])
+tmp_otu2 = unique(tmp_df.signif$OTU[tmp_df.signif$pval_adjust <= 0.05])
+# View
+View(setdiff(tmp_df.signif[tmp_df.signif$pval_adjust <= 0.05,],
+             stat_q2_otu_comparison_sum[stat_q2_otu_comparison_sum$g1 == "C" & 
+                                  stat_q2_otu_comparison_sum$pval_adjust <= 0.05,]))
+# and keep treatment with pvalue <= 0.05
+stat_q2_otu_comparison_sum_w0 = tmp_df.signif
+
+```
+
+# results analysis
+
+## basics
+
+```{r global}
+
+# select data
+tmp_data = stat_q2_otu_comparison_sum
+
+# number of significant comparisons
+nrow(tmp_data[tmp_data$pval_adjust <= 0.05,])
+
+# number of OTU with at least one significant comparison
+length(unique(tmp_data$OTU[tmp_data$pval_adjust <= 0.05]))
+
+# number of significant comparisons for each OTU
+tmp_data = as.matrix(table(tmp_data$OTU[tmp_data$pval_adjust <= 0.05]))
+tmp_data <- tibble("OTU"=rownames(tmp_data),
+                   "nb_signif_comp"=tmp_data)
+
+p <- ggplot(tmp_data,aes(tmp_data$nb_signif_comp))+
+  geom_histogram(binwidth = 1)+
+  theme_bw()+
+  labs(title = "Number of significant comparisons by OTUs",
+       x= "Number of significant comparisons",
+       y = "Number of OTUs")
+p
+
+```
+
+## comparison with control
+
+```{r comparison with control}
+
+# select data
+tmp_comp = stat_q2_otu_comparison_sum
+tmp_comp = tmp_comp[complete.cases(tmp_comp),] # remove OTUs for which model didnt work
+tmp_comp = tmp_comp[tmp_comp$g1 == "C",]
+tmp_comp$pval_adjust <- tmp_comp$p.value *258 *12
+
+# number of significant comparisons
+nrow(tmp_comp[tmp_comp$pval_adjust <= 0.05,])
+
+# number of OTU with at least one significant comparison
+length(unique(tmp_comp$OTU[tmp_comp$pval_adjust <= 0.05]))
+
+# number of OTU C.Tup and C.Tdown
+## estimate < 0 => superior in control than in ttt
+length(unique(tmp_comp$OTU[tmp_comp$pval_adjust <= 0.05 & tmp_comp$estimate < 0]))
+length(unique(tmp_comp$OTU[tmp_comp$pval_adjust <= 0.05 & tmp_comp$estimate > 0]))
+
+```
+
+```{r taxo impacted OTUs}
+
+# number of OTU C.Tup and C.Tdown
+## estimate < 0 => superior in control than in ttt
+tmp_otu_up = unique(tmp_comp$OTU[tmp_comp$pval_adjust <= 0.05 & tmp_comp$estimate < 0])
+tmp_otu_up = tmp_otu_up[!is.na(tmp_otu_up)]
+tmp_otu_down = unique(tmp_comp$OTU[tmp_comp$pval_adjust <= 0.05 & tmp_comp$estimate > 0])
+tmp_otu_down = tmp_otu_down[!is.na(tmp_otu_down)]
+
+tmp_df = ps_16S@tax_table[c(tmp_otu_up)]@.Data
+table(tmp_df[,3])
+
+tmp_df = ps_16S@tax_table[c(tmp_otu_down)]@.Data
+table(tmp_df[,3])
+
+# common OTUs between up and down
+intersect(tmp_otu_up,tmp_otu_down)
+tmp_df = ps_16S@tax_table[c(intersect(tmp_otu_up,tmp_otu_down))]@.Data
+table(tmp_df[,3])
+
+```
+
+
+```{r by treatment}
+
+# number of significant comparisons for each treatment
+tmp_total = as.matrix(table(tmp_comp$g2[tmp_comp$pval_adjust <= 0.05]))
+tmp_C.Td = as.matrix(table(tmp_comp$g2[tmp_comp$pval_adjust <= 0.05 & tmp_comp$estimate >0]))
+tmp_C.Tu = as.matrix(table(tmp_comp$g2[tmp_comp$pval_adjust <= 0.05 & tmp_comp$estimate <0]))
+
+tmp_data <- tibble("treatment"=rownames(tmp_C.Td),
+                   "total"= tmp_total,
+                   "C>T"=tmp_C.Td,
+                   "C<T"=tmp_C.Tu)
+
+tmp_data$`C>T` = - tmp_data$`C>T`
+
+tmp_data <- pivot_longer(tmp_data, cols = !treatment, names_to = "comp",values_to = "count")
+tmp_data <- left_join(tmp_data,Colors_treatments,by = "treatment")
+
+p <- ggplot(data = tmp_data,
+            aes(x = reorder(treatment,desc(order)), y = count)) + 
+  geom_col(colour = "#333333",linetype = 1, fill = reorder(tmp_data$color,desc(tmp_data$order))) +
+  coord_flip()+
+  labs(x="Treatment", y= "Differentially abundant OTU count", 
+       title = "Number of OTU differentially abundant in treatment compared to control",
+       color = "#333333")+
+  theme_bw()+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  geom_hline(yintercept = 0,color = "#333333")+
+  geom_text(data = tmp_data[tmp_data$comp =="total",],
+            mapping = aes(label = tmp_data$count[tmp_data$comp =="total"],
+                          y = 0.5,
+                          x = tmp_data$treatment[tmp_data$comp =="total"]),
+            colour="#333333", size=10,inherit.aes = F, angle = 0,
+            position = position_nudge(x = 0))
+
+p
+
+```
+
+```{r by OTU}
+
+# number of significant comparisons for each OTU
+tmp_data = as.matrix(table(tmp_comp$OTU[tmp_comp$pval_adjust <= 0.05]))
+tmp_data <- tibble("OTU"=rownames(tmp_data),
+                   "nb_signif_comp"=tmp_data)
+
+p <- ggplot(tmp_data,aes(tmp_data$nb_signif_comp))+
+  geom_histogram(binwidth = 1, breaks = c(0:max(tmp_data$nb_signif_comp)))+
+  theme_bw()+
+  labs(title = "Number of significant comparisons with the control by OTUs",
+       x= "Number of significant comparisons with the control",
+       y = "Number of OTUs")
+p
+
+```
+
+### impacted OTUs in control (suspension)
+
+```{r}
+
+# select data
+tmp_comp = stat_q2_otu_comparison_sum
+tmp_comp = tmp_comp[complete.cases(tmp_comp),] # remove OTUs for which model didnt work
+tmp_comp = tmp_comp[tmp_comp$g1 == "C",]
+tmp_comp$pval_adjust <- tmp_comp$p.value *258 *12
+tmp_comp = tmp_comp[tmp_comp$pval_adjust <= 0.05,]
+
+# impacted otus
+tmp_OTUs_impacted = unique(tmp_comp$OTU)
+
+# OTUs in control susp
+tmp_ps = ps_16S_susp
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment == "susp_C",tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) >0, tmp_ps)
+tmp_OTUs_susp_C = taxa_names(tmp_ps)
+
+# OTUs impacted not in susp C
+setdiff(tmp_OTUs_impacted,tmp_OTUs_susp_C)
+
+view(tmp_comp[tmp_comp$OTU %in% setdiff(tmp_OTUs_impacted,tmp_OTUs_susp_C),])
+
+# OTUs in control
+tmp_ps = ps_16S
+tmp_ps <- prune_samples(tmp_ps@sam_data$treatment == "C",tmp_ps)
+tmp_ps <- prune_taxa(taxa_sums(tmp_ps) >0, tmp_ps)
+tmp_OTUs_C = taxa_names(tmp_ps)
+
+# OTUs impacted not in C
+setdiff(tmp_OTUs_impacted,tmp_OTUs_C)
+
+
+
+```
+
+
+### impacted in corresponding suspensions
+How many OTU impacted by the coalescence are present in the suspensions ?
+
+```{r without loop}
+
+tmp_susp = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+tmp_ttt = list(c("MAC_a1d1","MAC_a1d2","MAC_a1d3"),c("MAC_a2d1","MAC_a2d2","MAC_a2d3"),
+               c("PEB_a1d1","PEB_a1d2","PEB_a1d3"),c("PEB_a2d1","PEB_a2d2","PEB_a2d3"))
+
+i = 1
+  
+# select comparison with control
+tmp_data = stat_q2_otu_comparison_sum
+tmp_data = tmp_data[complete.cases(tmp_data),] # remove OTUs for which model didnt work
+tmp_data = tmp_data[tmp_data$g1 == "C",]
+tmp_data$pval_adjust <- tmp_data$p.value *258 *12
+
+# select treatments and signif comp up
+tmp_data = tmp_data[tmp_data$g2 %in% tmp_ttt[[i]] & # select comp
+                      tmp_data$pval_adjust <= 0.05 & # signif comp
+                      tmp_data$estimate <0,] # OTUs up < | down >
+
+# select OTUs up
+tmp_OTUs_up = unique(tmp_data$OTU)
+
+# select OTU in suspension
+tmp_ps = ps_16S_susp
+tmp_ps = prune_samples(tmp_ps@sam_data$treatment == tmp_susp[i],tmp_ps)
+tmp_ps = prune_taxa(taxa_sums(tmp_ps) >0, tmp_ps)
+tmp_OTUs_susp = taxa_names(tmp_ps)
+
+# compare OTUs present
+tmp_OTUs_pres = intersect(tmp_OTUs_up,tmp_OTUs_susp)
+# compare OTUs absent
+tmp_OTUs_abs = setdiff(tmp_OTUs_up,tmp_OTUs_susp)
+
+# global df
+tmp_df_pres = tibble("susp"=rep(tmp_susp[i],length(tmp_OTUs_pres)),
+                     "OTU"=tmp_OTUs_pres)
+tmp_df_abs = tibble("susp"=rep(tmp_susp[i],length(tmp_OTUs_abs)),
+                      "OTU"=tmp_OTUs_abs)
+
+
+```
+
+```{r all suspensions, up}
+
+tmp_susp = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+tmp_ttt = list(c("MAC_a1d1","MAC_a1d2","MAC_a1d3"),c("MAC_a2d1","MAC_a2d2","MAC_a2d3"),
+               c("PEB_a1d1","PEB_a1d2","PEB_a1d3"),c("PEB_a2d1","PEB_a2d2","PEB_a2d3"))
+
+tmp_global_up_pres = tibble()
+tmp_global_up_abs = tibble()
+
+
+for (i in 1:4) {
+  
+  # select comparison with control
+  tmp_data = stat_q2_otu_comparison_sum
+  tmp_data = tmp_data[complete.cases(tmp_data),] # remove OTUs for which model didnt work
+  tmp_data = tmp_data[tmp_data$g1 == "C",]
+  tmp_data$pval_adjust <- tmp_data$p.value *258 *12
+  
+  # select treatments and signif comp up
+  tmp_data = tmp_data[tmp_data$g2 %in% tmp_ttt[[i]] & # select comp
+                        tmp_data$pval_adjust <= 0.05 & # signif comp
+                        tmp_data$estimate <0,] # OTUs up <
+  
+  # select OTUs up
+  tmp_OTUs_up = unique(tmp_data$OTU)
+  
+  # select OTU in suspension
+  tmp_ps = ps_16S_susp
+  tmp_ps = prune_samples(tmp_ps@sam_data$treatment == tmp_susp[i],tmp_ps)
+  tmp_ps = prune_taxa(taxa_sums(tmp_ps) >0, tmp_ps)
+  tmp_OTUs_susp = taxa_names(tmp_ps)
+  
+  # compare OTUs present
+  tmp_OTUs_pres = intersect(tmp_OTUs_up,tmp_OTUs_susp)
+  # compare OTUs absent
+  tmp_OTUs_abs = setdiff(tmp_OTUs_up,tmp_OTUs_susp)
+
+  # global df
+  tmp_df_pres = tibble("susp"=rep(tmp_susp[i],length(tmp_OTUs_pres)),
+                       "OTU"=tmp_OTUs_pres)
+  tmp_df_abs = tibble("susp"=rep(tmp_susp[i],length(tmp_OTUs_abs)),
+                      "OTU"=tmp_OTUs_abs)
+  
+  tmp_global_up_pres = rbind(tmp_global_up_pres,tmp_df_pres)
+  tmp_global_up_abs = rbind(tmp_global_up_abs,tmp_df_abs)
+  
+}
+
+unique(tmp_global_up_pres$OTU)
+unique(tmp_global_up_abs$OTU)
+
+# taxo
+tmp_df = ps_16S@tax_table[c(unique(tmp_global_up_pres$OTU))]@.Data
+table(tmp_df[,3])
+
+tmp_df = ps_16S@tax_table[c(unique(tmp_global_up_abs$OTU))]@.Data
+table(tmp_df[,3])
+
+```
+
+```{r all suspensions, down}
+
+tmp_susp = c("susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+tmp_ttt = list(c("MAC_a1d1","MAC_a1d2","MAC_a1d3"),c("MAC_a2d1","MAC_a2d2","MAC_a2d3"),
+               c("PEB_a1d1","PEB_a1d2","PEB_a1d3"),c("PEB_a2d1","PEB_a2d2","PEB_a2d3"))
+
+tmp_global_down_pres = tibble()
+tmp_global_down_abs = tibble()
+
+for (i in 1:4) {
+  
+  # select comparison with control
+  tmp_data = stat_q2_otu_comparison_sum
+  tmp_data = tmp_data[complete.cases(tmp_data),] # remove OTUs for which model didnt work
+  tmp_data = tmp_data[tmp_data$g1 == "C",]
+  tmp_data$pval_adjust <- tmp_data$p.value *258 *12
+  
+  # select treatments and signif comp up
+  tmp_data = tmp_data[tmp_data$g2 %in% tmp_ttt[[i]] & # select comp
+                        tmp_data$pval_adjust <= 0.05 & # signif comp
+                        tmp_data$estimate >0,] # OTUs down > 
+  
+  # select OTUs down
+  tmp_OTUs_down = unique(tmp_data$OTU)
+  
+  # select OTU in suspension
+  tmp_ps = ps_16S_susp
+  tmp_ps = prune_samples(tmp_ps@sam_data$treatment == tmp_susp[i],tmp_ps)
+  tmp_ps = prune_taxa(taxa_sums(tmp_ps) >0, tmp_ps)
+  tmp_OTUs_susp = taxa_names(tmp_ps)
+  
+  # compare OTUs present
+  tmp_OTUs_pres = intersect(tmp_OTUs_down,tmp_OTUs_susp)
+  # compare OTUs absent
+  tmp_OTUs_abs = setdiff(tmp_OTUs_down,tmp_OTUs_susp)
+
+  # global df
+  tmp_df_pres = tibble("susp"=rep(tmp_susp[i],length(tmp_OTUs_pres)),
+                       "OTU"=tmp_OTUs_pres)
+  tmp_df_abs = tibble("susp"=rep(tmp_susp[i],length(tmp_OTUs_abs)),
+                      "OTU"=tmp_OTUs_abs)
+  
+  tmp_global_down_pres = rbind(tmp_global_down_pres,tmp_df_pres)
+  tmp_global_down_abs = rbind(tmp_global_down_abs,tmp_df_abs)
+  
+}
+
+unique(tmp_global_down_pres$OTU)
+unique(tmp_global_down_abs$OTU)
+
+```
+
+```{r percent impacted / present in susp}
+
+tmp_df = tibble("OTU"=taxa_names(ps_16S_fltr))
+
+tmp_OTUs = tmp_otu_up
+tmp_df[,"up"] <- ifelse(tmp_df$OTU %in% tmp_OTUs,1,0)
+
+tmp_OTUs = unique(tmp_df_final_up$OTU)
+tmp_df[,"up_in_susp"] <- ifelse(tmp_df$OTU %in% tmp_OTUs,1,0)
+
+tmp_OTUs = tmp_otu_down
+tmp_df[,"down"] <- ifelse(tmp_df$OTU %in% tmp_OTUs,1,0)
+
+tmp_OTUs = unique(tmp_df_final_down$OTU)
+tmp_df[,"down_in_susp"] <- ifelse(tmp_df$OTU %in% tmp_OTUs,1,0)
+
+tmp <- apply(tmp_df[,-1], 1, FUN=function(x) sum(x))
+tmp_OTUs <- tmp_df$OTU[which(tmp>0)]
+
+# nb of OTUs impacted by the coalescence
+length(tmp_OTUs)/258*100
+
+# nb of OTUs impacted by the coalescence that were in modified suspensions
+length(unique(c(tmp_df$OTU[tmp_df$up_in_susp >0],
+                tmp_df$OTU[tmp_df$down_in_susp >0]))) /length(tmp_OTUs)*100
+
+```
+
+```{r percent impacted / absent in susp}
+
+# select signif comp with control
+tmp_comp = stat_q2_otu_comparison_sum
+tmp_comp = tmp_comp[complete.cases(tmp_comp),] # remove OTUs for which model didnt work
+tmp_comp = tmp_comp[tmp_comp$g1 == "C",]
+tmp_comp$pval_adjust <- tmp_comp$p.value *258 *12
+tmp_comp = tmp_comp[tmp_comp$pval_adjust <= 0.05,]
+
+# number of OTU with at least one significant comparison
+tmp_otus_impacted = unique(tmp_comp$OTU)
+
+# number of OTUs impacted present in suspension
+tmp_OTUs_pres = unique(c(tmp_global_up_pres$OTU,tmp_global_down_pres$OTU))
+## OTU up present
+tmp_otus_up_pres = unique(tmp_global_up_pres$OTU)
+## OTU down present
+tmp_otus_down_pres = unique(tmp_global_down_pres$OTU)
+
+# number of OTUs impacted absent from suspension
+tmp_OTUs_abs = unique(c(tmp_global_up_abs$OTU,tmp_global_down_abs$OTU))
+## OTU up absent
+tmp_otus_up_abs = unique(tmp_global_up_abs$OTU)
+## OTU down absent
+tmp_otus_down_abs = unique(tmp_global_down_abs$OTU)
+
+
+
+
+
+tmp_df = tibble("OTU"=taxa_names(ps_16S_fltr))
+
+tmp_OTUs = tmp_otu_up
+tmp_df[,"up"] <- ifelse(tmp_df$OTU %in% tmp_OTUs,1,0)
+
+tmp_OTUs = unique(tmp_df_final_up$OTU)
+tmp_df[,"up_in_susp"] <- ifelse(tmp_df$OTU %in% tmp_OTUs,1,0)
+
+tmp_OTUs = tmp_otu_down
+tmp_df[,"down"] <- ifelse(tmp_df$OTU %in% tmp_OTUs,1,0)
+
+tmp_OTUs = unique(tmp_df_final_down$OTU)
+tmp_df[,"down_in_susp"] <- ifelse(tmp_df$OTU %in% tmp_OTUs,1,0)
+
+tmp <- apply(tmp_df[,-1], 1, FUN=function(x) sum(x))
+tmp_OTUs <- tmp_df$OTU[which(tmp>0)]
+
+# nb of OTUs impacted by the coalescence
+length(tmp_OTUs)/258*100
+
+# nb of OTUs impacted by the coalescence that were in modified suspensions
+length(unique(c(tmp_df$OTU[tmp_df$up_in_susp >0],
+                tmp_df$OTU[tmp_df$down_in_susp >0]))) /length(tmp_OTUs)*100
+
+```
+
+
+# plot OTU abundance
+
+```{r plot 1 OTU abundance}
+
+tmp_OTU = "OTU-47"
+
+tmp_ps = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps)==tmp_OTU,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+# treatment colors
+tmp_colors <- Color_sets[Color_sets$set == "treatments",c("treatment","color","order")]  
+tmp_colors <- tmp_colors[tmp_colors$treatment %in% tmp_data$treatment,]
+
+
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance,fill = treatment))+
+  geom_boxplot()+
+  geom_jitter(shape = 21,size=2, alpha=0.5) +
+  labs(title = tmp_OTU,y="Relative abundance (among non filtered OTUs)",x="Treatments")+
+  scale_fill_manual(values = tmp_colors$color) +
+  #scale_color_manual(values = tmp_colors$color) +
+  #labs(title = tmp_OTU,y="Raw abundance (log10 scale)",x="Treatments")+
+  #scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  theme(axis.text.x  = element_text(angle = 90))
+  
+p
+
+```
+
+
+```{r plot several OTU abundance}
+
+tmp_OTUs = c(2352,17,12250,5544,17138)
+tmp_OTUs <- paste0("OTU-",tmp_OTUs)
+
+#tmp_OTUs = tmp_otus_down_abs
+
+tmp_ps = ps_16S_fltr
+tmp_ps <- prune_taxa(taxa_names(tmp_ps) %in% tmp_OTUs,tmp_ps)
+
+tmp_plot_data = psmelt(tmp_ps)
+
+
+p <- ggplot(tmp_plot_data,aes(tmp_plot_data$treatment,tmp_plot_data$Abundance))+
+  geom_boxplot()+
+  geom_jitter(color="red", size=0.5, alpha=0.9) +
+  labs(title = "Node OTUs",y="Abundance",x="Treatments")+
+#  labs(title = tmp_OTU,y="Raw abundance (log10 scale)",x="Treatments")+
+  scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  facet_wrap(vars(OTU))+
+  theme(axis.text.x  = element_text(angle = 90))
+
+p
+
+```
+
+
+
+
+
+
+
+
+
+

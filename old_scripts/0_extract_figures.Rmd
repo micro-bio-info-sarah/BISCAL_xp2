@@ -1,0 +1,635 @@
+---
+title: "fig_nat_com"
+author: "Sarah HUET"
+date: "30/08/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(cowplot)
+library(dplyr)
+#library(export)
+library(officer)
+library(rvg)
+
+library(ggedit)
+
+
+# remove all temporary objects from your environment
+#rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+
+```
+
+# export 
+
+## source data 
+
+```{r export source date}
+library(openxlsx)
+
+### SELECT DATA ###
+
+tmp_data = tmp_data
+
+
+
+# change treatment name
+tmp_ttt_name_old <- c("A1","A2","A3","Fun1","Fun2","Pro","SS","T0","_")
+tmp_ttt_name_new <- c("Cip","Gen","Ram","Cic","Mic","Mil","Sterile Soil","Original Soil","+")
+
+for (i in 1:length(tmp_ttt_name_old)) {
+  tmp_data$treatment <- gsub(tmp_ttt_name_old[i],tmp_ttt_name_new[i],tmp_data$treatment)
+  tmp_data$treatment <- gsub(tmp_ttt_name_old[i],tmp_ttt_name_new[i],tmp_data$treatment)
+}
+
+
+
+write.xlsx(tmp_data, file = "D:/Thesis/EMFEED/BISCAL_xp1/Nat_com/source_data.xlsx", sheetName = tmp_plot_name, 
+  col.names = TRUE, row.names = TRUE, append = TRUE)
+
+```
+
+## figures
+
+```{r 1 fig without text}
+
+#tmp_data_2D = fig_div[["microcosm_wunifrac"]][["data"]]
+
+p = p
+p
+  
+p[["labels"]][["title"]] <- element_blank()
+p[["labels"]][["x"]] <- element_blank()
+p[["labels"]][["y"]] <- element_blank()
+p[["theme"]][["legend.position"]] <- 'none'
+p[["theme"]][["axis.text.x"]] <- element_blank()
+p[["theme"]][["axis.text.y"]] <- element_blank()
+#p[["theme"]][["axis.text.y"]][["size"]] <- 6
+
+p <- remove_geom(p, "GeomText")
+
+p
+
+# a4 : 200 / 287
+tmp_dim = c(80,287/3)
+
+# export svg
+ggsave(plot = p,
+       filename = "C:/Users/srhuet/Downloads/tmp_fig.svg",
+       width = tmp_dim[1],height = tmp_dim[2],units = "mm")
+       #width = 130,height = 90,units = "mm")
+
+
+
+```
+
+
+```{r 1 fig with text}
+
+# export svg
+ggsave(plot = p,
+       filename = "C:/Users/srhuet/Downloads/tmp_fig.svg",
+        #width = 200/1,height = 287/1,units = "mm")
+        width = 170/2,height = 225/1,units = "mm")
+
+```
+
+```{r slides}
+
+# export svg
+ggsave(plot = p,
+       filename = "tmp_fig.svg",
+       width = 50,height = 50,units = "mm")
+
+
+```
+
+# wrangle Figures
+https://ardata-fr.github.io/officeverse/officer-for-powerpoint.html
+
+```{r fig 2 plots 1r*2c}
+
+tmp_plots = list(fig_div$`16S_Step 1_wunifrac_pcoa`,
+                 fig_div$`18S_Step 1_wunifrac_pcoa`)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- NULL
+  tmp_plots[[i]][["labels"]][["x"]] <- " "
+  tmp_plots[[i]][["labels"]][["y"]] <- " "
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]][["size"]] <- "0"
+  tmp_plots[[i]][["theme"]][["axis.text.x"]][["size"]] <- "8"
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.00, 0.00, 0.50, 1) + 
+  draw_plot(tmp_plots[[2]], 0.50, 0.00, 0.50, 1) +
+  
+  draw_plot_label(c("a","b"),
+                  c(0, 0.5),
+                  c(1, 1), size = 12)
+p
+
+```
+
+```{r fig 2 plots 2r*1c}
+
+tmp_plots = list(fig_div,
+                 fig_div$`18S_Step 2_wunifrac_pcoa`)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- NULL
+  #tmp_plots[[i]][["labels"]][["x"]] <- element_blank()
+  #tmp_plots[[i]][["labels"]][["y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  #tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+  #tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.00, 0.50, 1, 0.50) + 
+  draw_plot(tmp_plots[[2]], 0.00, 0.00, 1, 0.50) +
+  
+  draw_plot_label(c("a","b"),
+                  c(0, 0),
+                  c(1, 0.5), size = 12)
+p
+
+```
+
+```{r fig 2 plots diff width}
+
+tmp_plots = list(fig_div$all_wunifrac_distance_tukey,
+                 fig_div$all_wunifrac)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["x"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+
+  tmp_plots[[i]] <- remove_geom(tmp_plots[[i]], "GeomText")
+
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.10, 0.00, 0.30, 1.0) + 
+  draw_plot(tmp_plots[[2]], 0.45, 0.00, 0.55, 1.0)
+p
+
+```
+
+```{r fig 3 plots: 1rx3c}
+
+tmp_plots = list(fig_div$microcosm_wunifrac_distance,
+                 fig_div$microcosm_wunifrac_distance,
+                 fig_div$microcosm_wunifrac_distance)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["x"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+  
+  tmp_plots[[i]] <- remove_geom(tmp_plots[[i]], "GeomText")
+}
+
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.10, 0.0, 0.30, 1) + 
+  draw_plot(tmp_plots[[2]], 0.40, 0.0, 0.30, 1) +
+  draw_plot(tmp_plots[[3]], 0.70, 0.0, 0.30, 1) 
+
+p
+
+```
+
+```{r fig 3 plots: 3rx1c}
+
+tmp_plots = list(fig_div$`16S_Step 2_observed_species`,
+                 fig_div$`16S_Step 2_wunifrac_similarity`,
+                 fig_function$`AOB_Step 2`)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["x"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+}
+
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.00, 0.70, 1, 0.3) + 
+  draw_plot(tmp_plots[[2]], 0.00, 0.40, 1, 0.3) +
+  draw_plot(tmp_plots[[3]], 0.00, 0.10, 1, 0.3) +
+  
+  draw_plot_label(c("a","b","c"),
+                  c(1, 1, 1),
+                  c(0.10, 0.40, 0.70),
+                  size = 12)
+p
+
+```
+
+```{r fig 3 plots: 2rx2c }
+
+tmp_plots = list(fig_div$suspension_wunifrac_distance_tukey,
+                 fig_div$modif_susp_wunifrac_distance_tukey,
+                 fig_div$suspension_wunifrac)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["x"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+
+  tmp_plots[[i]] <- remove_geom(tmp_plots[[i]], "GeomText")
+
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.10, 0.50, 0.30, 0.5) + 
+
+  draw_plot(tmp_plots[[2]], 0.10, 0.00, 0.30, 0.5) + 
+  draw_plot(tmp_plots[[3]], 0.45, 0.00, 0.55, 1.0) 
+p
+
+```
+
+```{r fig 4 plots: 1x4}
+
+tmp_plots = list(plot_div$observed_species,plot_function$NO3,plot_function$AOB,plot_function$pH)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- NULL
+  tmp_plots[[i]][["labels"]][["x"]] <- " "
+  tmp_plots[[i]][["labels"]][["y"]] <- " "
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]][["size"]] <- "0"
+  tmp_plots[[i]][["theme"]][["axis.text.x"]][["size"]] <- "8"
+}
+
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.00, 0.0, 0.25, 1) + 
+  draw_plot(tmp_plots[[2]], 0.25, 0.0, 0.25, 1) +
+  draw_plot(tmp_plots[[3]], 0.50, 0.0, 0.25, 1) +
+  draw_plot(tmp_plots[[4]], 0.75, 0.0, 0.25, 1) +
+  
+  draw_plot_label(c("a","b","c","d"),
+                  c(0.00, 0.25, 0.50,0.75),
+                  c(1, 1, 1, 1), size = 12)
+p
+
+```
+
+```{r fig 4 plots: 2x2 same size}
+
+tmp_plots = list(fig_div$`16S_Step 1_observed_species`,fig_div$`16S_Step 2_observed_species`,
+                 fig_div$`16S_Step 1_wunifrac_similarity`,fig_div$`16S_Step 2_wunifrac_similarity`)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["x"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.0, 0.50, 0.5, 0.50) + 
+  draw_plot(tmp_plots[[2]], 0.5, 0.50, 0.5, 0.50) +
+  draw_plot(tmp_plots[[3]], 0.0, 0.00, 0.5, 0.50) + 
+  draw_plot(tmp_plots[[4]], 0.5, 0.00, 0.5, 0.50) 
+
+p
+
+```
+
+```{r fig 4 plots: 2x2 diff size}
+
+#tmp_data_2D = fig_div[["16S_Step 1_wunifrac_pcoa"]][["data"]]
+
+tmp_plots = list(fig_div$`16S_Step 1_observed_species`,fig_div$`16S_Step 1_commu.compo`,
+                 fig_div$`16S_Step 1_wunifrac_bar`,fig_div$`16S_Step 1_wunifrac_pcoa`)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- NULL
+  #tmp_plots[[i]][["labels"]][["x"]] <- " "
+  #tmp_plots[[i]][["labels"]][["y"]] <- " "
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.title.x"]][["size"]] <- "12"
+  tmp_plots[[i]][["theme"]][["axis.title.y"]][["size"]] <- "12"
+  tmp_plots[[i]][["theme"]][["axis.text.x"]][["size"]] <- "10"
+  tmp_plots[[i]][["theme"]][["axis.text.y"]][["size"]] <- "10"
+  #tmp_plots[[i]][["layers"]][[3]][["aes_params"]][["size"]] <- "4"
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.00, 0.50, 0.30, 0.50) + 
+  draw_plot(tmp_plots[[2]], 0.30, 0.50, 0.55, 0.50) +
+  draw_plot(tmp_plots[[3]], 0.00, 0.00, 0.30, 0.50) + 
+  draw_plot(tmp_plots[[4]], 0.30, 0.00, 0.55, 0.50) +
+  
+  draw_plot_label(c("a","b","c","d"),
+                  c(0.0, 0.3, 0.0, 0.3),# x
+                  c(1.0, 1.0, 0.5, 0.5), # y
+                  size = 12)
+
+p
+
+```
+
+```{r fig 4 plots: 2rx3c}
+
+#tmp_data_2D = fig_div[["16S_Step 1_wunifrac_pcoa"]][["data"]]
+
+tmp_plots = list(fig_div$microcosm_observed_species,fig_div$microcosm_PD_whole_tree,
+                 fig_div$microcosm_simpson_reciprocal,
+                 fig_div$microcosm_wunifrac_distance)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- NULL
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.title.x"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.title.y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.10, 0.50, 0.30, 0.450) + 
+  draw_plot(tmp_plots[[2]], 0.40, 0.50, 0.30, 0.450) +
+  draw_plot(tmp_plots[[3]], 0.70, 0.50, 0.30, 0.450) +
+
+  draw_plot(tmp_plots[[4]], 0.10, 0.00, 0.30, 0.450)
+
+p
+
+```
+
+```{r fig div}
+
+tmp_plots = plot_div_susp
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- NULL
+  tmp_plots[[i]][["labels"]][["x"]] <- " "
+  tmp_plots[[i]][["labels"]][["y"]] <- " "
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]][["size"]] <- "0"
+  tmp_plots[[i]][["theme"]][["axis.text.x"]][["size"]] <- "8"
+}
+
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.10, 0.50, 0.30, 0.450) + 
+  draw_plot(tmp_plots[[2]], 0.40, 0.50, 0.30, 0.450) +
+  draw_plot(tmp_plots[[3]], 0.70, 0.50, 0.30, 0.450) +
+
+  draw_plot(tmp_plots[[4]], 0.10, 0.00, 0.30, 0.450) + 
+  draw_plot(tmp_plots[[5]], 0.40, 0.00, 0.30, 0.450) +
+  
+  draw_plot_label(c("a","b","c","d","e"),
+                  c(0, 0.4,0.7 ,0, 0.4),
+                  c(1, 1, 1,.5, .5), size = 12)
+
+#graph2ppt(p,file="fig_test.pptx",append=T,width = 12,height = 16)
+p
+
+rm(i,tmp_plots)
+
+ggsave(plot = p,
+       filename = "fig.svg",
+       width = 125,height = 190,units = "mm")
+
+
+tmp_editable_graph <- dml(ggobj = p)
+tmp_doc <- read_pptx()
+tmp_doc <- add_slide(tmp_doc)
+tmp_doc <- ph_with(x = tmp_doc, tmp_editable_graph,
+               location = ph_location_type(type = "body") )
+print(tmp_doc, target = "tmp_fig.pptx")
+
+
+```
+
+```{r fig 6 plots - 2r*3c}
+
+tmp_plots = list(fig_div$suspension_observed_species,
+                 fig_div$suspension_PD_whole_tree,
+                 fig_div$suspension_simpson_reciprocal,
+                 fig_div$modif_susp_observed_species,
+                 fig_div$modif_susp_PD_whole_tree,
+                 fig_div$modif_susp_simpson_reciprocal)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["x"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+  
+  tmp_plots[[i]] <- remove_geom(tmp_plots[[i]], "GeomText")
+
+}
+
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.10, 0.50, 0.30, 0.50) + 
+  draw_plot(tmp_plots[[2]], 0.40, 0.50, 0.30, 0.50) +
+  draw_plot(tmp_plots[[3]], 0.70, 0.50, 0.30, 0.50) +
+
+  draw_plot(tmp_plots[[4]], 0.10, 0.00, 0.30, 0.50) + 
+  draw_plot(tmp_plots[[5]], 0.40, 0.00, 0.30, 0.50) +
+  draw_plot(tmp_plots[[6]], 0.70, 0.00, 0.30, 0.50) 
+
+p
+
+rm(i,tmp_plots)
+
+```
+
+```{r fig 8 plots - 2r*4c}
+
+tmp_plots = list(fig_function$`NH4_Step 1fig.diablo`,fig_function$`NH4_Step 2fig.diablo`,
+                 fig_function$`NO3_Step 1fig.diablo`,fig_function$`NO3_Step 2fig.diablo`,
+                 fig_function$`pH_Step 1fig.diablo`,fig_function$`pH_Step 2fig.diablo`,
+                 fig_function$`OTU-258_Step 1fig.diablo`,fig_function$`OTU-258_Step 2fig.diablo`)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["x"]] <- element_blank()
+  tmp_plots[[i]][["labels"]][["y"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.x"]] <- element_blank()
+  tmp_plots[[i]][["theme"]][["axis.text.y"]] <- element_blank()
+}
+
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.00, 0.50, 0.25, 0.50) + 
+  draw_plot(tmp_plots[[3]], 0.25, 0.50, 0.25, 0.50) +
+  draw_plot(tmp_plots[[5]], 0.50, 0.50, 0.25, 0.50) +
+  draw_plot(tmp_plots[[7]], 0.75, 0.50, 0.25, 0.50) +
+
+  draw_plot(tmp_plots[[2]], 0.00, 0.00, 0.25, 0.50) +
+  draw_plot(tmp_plots[[4]], 0.25, 0.00, 0.25, 0.50) +
+  draw_plot(tmp_plots[[6]], 0.50, 0.00, 0.25, 0.50) + 
+  draw_plot(tmp_plots[[8]], 0.75, 0.00, 0.25, 0.50) 
+p
+
+rm(i,tmp_plots)
+
+```
+
+```{r fig 8 plots - 2r*3c+1r*2c}
+
+tmp_plots = fig_susp
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["labels"]][["title"]] <- NULL
+  tmp_plots[[i]][["labels"]][["x"]] <- " "
+  tmp_plots[[i]][["labels"]][["y"]] <- " "
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]][["size"]] <- "0"
+  tmp_plots[[i]][["theme"]][["axis.text.x"]][["size"]] <- "8"
+}
+
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.10, 0.66, 0.30, 0.33) + 
+  draw_plot(tmp_plots[[3]], 0.40, 0.66, 0.30, 0.33) +
+  draw_plot(tmp_plots[[5]], 0.70, 0.66, 0.30, 0.33) +
+
+  draw_plot(tmp_plots[[2]], 0.10, 0.33, 0.30, 0.33) + 
+  draw_plot(tmp_plots[[4]], 0.40, 0.33, 0.30, 0.33) +
+  draw_plot(tmp_plots[[6]], 0.70, 0.33, 0.30, 0.33) +
+  
+  draw_plot(tmp_plots[[7]], 0.10, 0.00, 0.30, 0.33) +
+  draw_plot(tmp_plots[[8]], 0.40, 0.00, 0.60, 0.33)
+  
+
+#graph2ppt(p,file="fig_test.pptx",append=T,width = 12,height = 16)
+p
+
+rm(i,tmp_plots)
+
+ggsave(plot = p,
+       filename = "C:/Users/srhuet/Downloads/tmp_fig.svg",
+       width = 200,height = 120,units = "mm")
+
+
+```
+
+# slide
+
+```{r fig slide h }
+
+tmp_plots = list(p,p)
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]][["size"]] <- "8"
+  tmp_plots[[i]][["theme"]][["axis.text.x"]][["size"]] <- "8"
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.00, 0.00, 0.5, 1) + 
+  draw_plot(tmp_plots[[2]], 0.50, 0.00, 0.5, 1) +
+  
+  draw_plot_label(c("a","b"),
+                  c(0, 0.5), # x
+                  c(1, 1), # y
+                  size = 12)
+
+#graph2ppt(p,file="fig_test.pptx",append=T,width = 12,height = 16)
+p
+
+ggsave(plot = p,
+       filename = "tmp_fig.svg",
+       width = 330,height = 190,units = "mm")
+
+tmp_editable_graph <- dml(ggobj = p)
+tmp_doc <- read_pptx()
+tmp_doc <- add_slide(tmp_doc)
+tmp_doc <- ph_with(x = tmp_doc, tmp_editable_graph,
+               location = ph_location_type(type = "body") )
+print(tmp_doc, target = "tmp_fig.pptx")
+
+
+```
+
+```{r fig slide v }
+
+tmp_plots = plot_susp
+
+for (i in 1:length(tmp_plots)) {
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+  tmp_plots[[i]][["theme"]][["axis.text.y"]][["size"]] <- "8"
+  tmp_plots[[i]][["theme"]][["axis.text.x"]][["size"]] <- "8"
+  tmp_plots[[i]][["theme"]][["legend.position"]] <- 'none'
+}
+
+p <- ggdraw() +
+  #draw_plot(tmp_plots[[1]], x, y, width, heigth) + 
+  draw_plot(tmp_plots[[1]], 0.00, 0.5, 1, 0.5) + 
+  draw_plot(tmp_plots[[2]], 0.00, 0.00, 1, 0.5) +
+  
+  draw_plot_label(c("a","b"),
+                  c(0, 0), # x
+                  c(1, 0.50), # y
+                  size = 12)
+
+#graph2ppt(p,file="fig_test.pptx",append=T,width = 12,height = 16)
+p
+
+ggsave(plot = p,
+       filename = "tmp_fig.svg",
+       width = 330,height = 190,units = "mm")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+

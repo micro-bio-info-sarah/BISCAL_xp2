@@ -1,0 +1,80 @@
+---
+title: "9_NNLS"
+author: "Sarah HUET"
+date: "25/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+# load libraries
+
+library(phyloseq)
+library(metagMisc)
+library(nnls)
+library(limSolve)
+library(tibble)
+
+```
+
+https://www.sciencedirect.com/science/article/pii/S096098221731254X#mmc2
+
+# wrangle PS
+
+https://rdrr.io/github/vmikk/metagMisc/man/phyloseq_transform_css.html
+
+```{r}
+
+# normalisation CSS
+tmp_ps_css = phyloseq_transform_css(ps_16S,norm = T,log = F)
+
+# merge samples
+tmp_ps_merg = merge_samples(tmp_ps_css,tmp_ps_css@sam_data$treatment, fun = sum)
+
+# subset less abundant OTUs
+tmp_ps = subset_taxa(tmp_ps_merg,taxa_names(tmp_ps_merg) %in% taxa_names(ps_16S_fltr))
+
+
+```
+
+```{r}
+
+tmp_ttt = c("C","MAC_a1d1","MAC_a1d2","MAC_a1d3","MAC_a2d1","MAC_a2d2","MAC_a2d3",
+            "PEB_a1d1","PEB_a1d2","PEB_a1d3","PEB_a2d1","PEB_a2d2","PEB_a2d3")
+tmp_susp = c("susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")
+
+
+
+# get OTU table
+tmp_otu_table = t(tmp_ps@otu_table@.Data)
+
+# get suspension matrix
+tmp_A_matrix = tmp_otu_table[,tmp_susp]
+
+# get contribution (=weight) of each suspension to the pattern of OTUs observed in each of the colaescence outcome
+tmp_global = tibble()
+for (i in 1:length(tmp_ttt)) {
+  
+  # get post-coalescence community vectors
+  tmp_b_vector = tmp_otu_table[,tmp_ttt[i]]
+  
+  # inspect residual sum of square = deviance
+  tmp_nnls <- nnls::nnls(tmp_A_matrix,tmp_b_vector)
+  tmp_nnls[2]
+  
+  # grab the 'weight values' = x vector
+  tmp_nnls <- limSolve::nnls(tmp_A_matrix,tmp_b_vector,verbose = T)
+  tmp_x_vector <- tibble("treatment"=rep(tmp_ttt[i],length(tmp_susp)),
+                         "susp"=tmp_susp,
+                         "weight"=tmp_nnls[["X"]])
+  
+  tmp_global <- rbind(tmp_global,tmp_x_vector)
+  
+}
+
+```
+

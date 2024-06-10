@@ -1,0 +1,613 @@
+---
+title: "5.1.Stat_model_analysis"
+author: "Sarah HUET"
+date: "10/01/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(tibble)
+library(phyloseq)
+
+library(car)
+library(lme4)
+
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+# save data
+#save(list = names(.GlobalEnv)[grep("stat_q",names(.GlobalEnv))],file = "RData_stat.RData")
+
+```
+
+We want to test two questions:
+* (1) which factor is important in coalescence, regarding the alpha div and the wunifrac distance to the control ?
+* (2) which differences compared to the control ?
+
+# Question 1
+
+## for diversity estimators
+
+### math Model 
+
+To estimate the effect of each factor on coalescence alpha diversity, we used 
+a generalized linear mixed model. 
+Considering sample alpha diveristy Y, in any k replicates of any i treatment, follow 
+a Poisson law of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, 
+
+we used the following model:
+
+$$Y_{ijkl}=\mu+\beta_i+\alpha_j+\delta_k+\left(\beta\alpha\right)_{ij}+\left(\beta\delta\right)_{ik}+\left(\alpha\delta\right)_{jk}+\left(\beta\alpha\delta\right)_{ijk}+\epsilon_{ijkl},\\{\epsilon_{ijkl}}_{1\le l\le10}\mathrm{\ iid}\sim\mathcal{N}\left(0,\sigma^2\right)$$
+
+where:
+* $i=\left\{1,2\right\}$ represents the selective broth (i.e. MAC or PEB)
+* $j=\left\{1,2\right\}$ represents the number of incubation cycles (i.e. 4 or 7 cycles)
+* $k=\left\{1,2,3\right\}$ represents the inoculated density (i.e. d1, d2 or d3)
+* $l=\left\{1,\ldots,10\right\}$ represents the replicates
+* $\beta$ is the effect of the selective broth
+* $\alpha$ is the effect of the number of incubation cycles
+* $\delta$ is the effect of the inoculated density
+* $\epsilon$ is the model residuals
+
+The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Subsequently, we performed a post-hoc Tukey test with the emmeans function of the emmeans package (version 1.6.1) implementing multiple comparisons. 
+
+### load data
+
+
+
+```{r choose your data}
+
+# select which data you want to test
+tmp_index = "observed_species" # "PD_whole_tree", "simpson_reciprocal", wunifrac_distance
+
+tmp_ps0 = ps_16S_micro
+
+```
+
+```{r wrangle data}
+
+tmp_data = fig_div[[paste0("microcosm_",tmp_index)]][["data"]]
+
+### keep only useful variables
+tmp_data <- tibble("treatment" = tmp_data$treatment,
+                   "resp_var" = tmp_data$value)
+### add treatment metadata
+tmp_data <- left_join(tmp_data,metadata_treatment,by="treatment")
+
+```
+
+
+#### test avec un distri normale
+
+```{r}
+
+tmp_data$resp_var <- rnorm(nrow(tmp_data), mean = mean(tmp_data$resp_var), sd = sd(tmp_data$resp_var))
+
+```
+
+### distribution
+
+first we have to determine which distribution our variable follow.
+https://statisticsbyjim.com/hypothesis-testing/identify-distribution-data/ 
+
+We will test these hypothesis :
+* H0: The sample data follow the hypothesized distribution.
+* H1: The sample data do not follow the hypothesized distribution.
+
+
+```{r}
+
+p <- ggplot(tmp_data, aes(x=resp_var)) + 
+  geom_density()+
+  geom_vline(aes(xintercept=mean(resp_var)), #draw mean line
+             color="blue", linetype="dashed", size=1)
+
+p
+
+
+shapiro.test(tmp_data$resp_var)
+
+```
+
+
+
+https://lbbe.univ-lyon1.fr/fr/fitdistrplus
+
+```{r}
+library(fitdistrplus)
+
+par(mfrow = c(1,1))
+
+plotdist(tmp_data$resp_var,histo=TRUE,demp=TRUE)
+
+descdist(tmp_data$resp_var, boot = 1000)
+
+tmp_fit <-fitdist(tmp_data$resp_var, "weibull")
+summary(tmp_fit)
+
+```
+
+```{r plot distri fit}
+
+tmp_fit_weibull <-fitdist(tmp_data$resp_var, "weibull")
+tmp_fit_lnorm <-fitdist(tmp_data$resp_var, "lnorm")
+tmp_fit_gamma <-fitdist(tmp_data$resp_var, "gamma")
+
+
+par(mfrow = c(2, 2))
+plot.legend <-c("Weibull", "lognormal", "gamma")
+denscomp(list(tmp_fit_weibull, tmp_fit_lnorm, tmp_fit_gamma), legendtext = plot.legend)
+qqcomp(list(tmp_fit_weibull, tmp_fit_lnorm, tmp_fit_gamma), legendtext = plot.legend)
+cdfcomp(list(tmp_fit_weibull, tmp_fit_lnorm, tmp_fit_gamma), legendtext = plot.legend)
+ppcomp(list(tmp_fit_weibull, tmp_fit_lnorm, tmp_fit_gamma), legendtext = plot.legend)
+
+```
+
+### stat
+
+```{r non-parametric}
+
+kruskal.test(resp_var~tmp_data$treatment, data = tmp_data)
+kruskal.test(resp_var~tmp_data$broth, data = tmp_data)
+kruskal.test(resp_var~tmp_data$incub, data = tmp_data)
+kruskal.test(resp_var~tmp_data$density, data = tmp_data)
+
+```
+
+```{r anova 3 factors}
+
+tmp_anova = aov(resp_var~tmp_data$broth*tmp_data$incub*tmp_data$density, data = tmp_data)
+summary(tmp_anova)
+
+#TukeyHSD(tmp_anova)
+
+tmp_aov_sum = summary(tmp_anova)[[1]]
+
+```
+
+### loop
+
+```{r with fig_div}
+
+tmp_ps0 = ps_16S_micro
+tmp_global_df = tibble()
+
+for (tmp_index in c("observed_species","PD_whole_tree","simpson_reciprocal","wunifrac_distance")) {
+  
+  tmp_data = fig_div[[paste0("microcosm_",tmp_index)]][["data"]]
+  
+  ### keep only useful variables
+  tmp_data <- tibble("treatment" = tmp_data$treatment,
+                     "resp_var" = tmp_data$value)
+  ### add treatment metadata
+  tmp_data <- left_join(tmp_data,metadata_treatment,by="treatment")
+  
+  ## STAT
+  tmp_anova = aov(resp_var~tmp_data$broth*tmp_data$incub*tmp_data$density, data = tmp_data)
+  summary(tmp_anova)
+  tmp_aov_sum = summary(tmp_anova)[[1]]
+  
+  ## GLOBAL DF
+  tmp_df = tibble("metric"=rep(tmp_index,nrow(tmp_aov_sum)),
+                  "var"=rownames(tmp_aov_sum),
+                  tmp_aov_sum)
+  tmp_global_df <- rbind(tmp_global_df,tmp_df)
+  
+}
+
+# bonferroni correction *4 metrics *7 variables
+tmp_global_df[,"pval_adjust"] <- p.adjust(tmp_global_df$`Pr(>F)`,method = "bonferroni")
+tmp_global_df[,"signif"] <- ifelse(tmp_global_df$pval_adjust <= 0.05,tmp_global_df$`F value`,0)
+
+# add comparison order
+tmp_global_df[,"order"] <- c(1:nrow(tmp_global_df))
+
+#stat_q1_metric = tmp_global_df
+#write.csv(stat_q1_metric,"stat_q1_metric.csv",row.names = F,quote = F)
+
+
+
+```
+
+```{r density}
+
+# keep microcosm samples
+tmp_data <- metadata_sample %>%
+  dplyr::filter(sample_type == "microcosm")
+
+### keep only useful variables
+tmp_data <- tibble("treatment" = tmp_data$treatment,
+                   "incub"=tmp_data$incub,
+                   "broth"=tmp_data$broth,
+                   "density"=tmp_data$density,
+                   "resp_var" = tmp_data$qPCR_16S)
+
+## STAT Q1
+tmp_anova = aov(resp_var~tmp_data$broth*tmp_data$incub*tmp_data$density, data = tmp_data)
+summary(tmp_anova)
+tmp_aov_sum = summary(tmp_anova)[[1]]
+
+# STAT Q2
+## linear model
+tmp_lm = lm(tmp_data$resp_var ~ tmp_data$treatment, na.action = na.omit )
+summary(tmp_lm)
+## anova
+anova(tmp_lm)
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+## post hoc Tukey test
+library(agricolae)
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+## tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "mean"=tmp_comp[["groups"]][["tmp_data$value"]],
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+
+
+
+
+
+
+```
+
+
+## for OTUs
+
+### math model
+
+To estimate the effect of each factor on each OTU abundance, we used a generalized linear mixed model. Considering that an OTU abundance Y, in any k replicates of any i treatment, follow a Poisson law of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, we used the following model:
+
+$$\log{\left(\Lambda_{ijkl}\right)}=o_{ijkl}+\mu+\beta_i+\alpha_j+\delta_k+\left(\beta\alpha\right)_{ij}+\left(\beta\delta\right)_{ik}+\left(\alpha\delta\right)_{jk}+\left(\beta\alpha\delta\right)_{ijk}+Z_{ijkl},\\{Z_{ijkl}}_{1\le j\le10}\mathrm{\ iid}\sim\mathcal{N}\left(0,\sigma^2\right)$$
+
+where:
+* $i=\left\{1,2\right\}$ represents the selective broth (i.e. MAC or PEB)
+* $j=\left\{1,2\right\}$ represents the number of incubation cycles (i.e. 4 or 7 cycles)
+* $k=\left\{1,2,3\right\}$ represents the inoculated density (i.e. d1, d2 or d3)
+* $l=\left\{1,\ldots,10\right\}$ represents the replicates
+* $\beta$ is the effect of the selective broth
+* $\alpha$ is the effect of the number of incubation cycles
+* $\delta$ is the effect of the inoculated density
+* $\epsilon$ is the model residuals
+* $o$ is the offset for each sample calculated as the log of the sample read sum
+* $Z$ is the random sampling effect modeling the data overdispersion
+
+The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Subsequently, we performed a post-hoc Tukey test with the emmeans function of the emmeans package (version 1.6.1) implementing multiple comparisons.
+
+### test without loop
+
+```{r variables}
+rm(b,a,d,o,z,tmp_global,
+   y,glmer3,glmer0,LRT,tmp_LRT_pchisq,
+   tmp_Fval,tmp_pval,tmp_val)
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+#tmp_ps = tmp_ps0
+
+# treatments
+b = tmp_ps@sam_data$broth
+a = tmp_ps@sam_data$incub
+d = tmp_ps@sam_data$density
+# offset
+o = log(sample_sums(tmp_ps))
+# random effect
+z <- tmp_ps@sam_data$sample
+
+```
+
+https://zian999.github.io/posts/2019/lrt_pvalues_for_glmer/
+
+```{r model}
+
+# select one OTU
+tmp_OTU = "OTU-254"
+# response variable
+y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+
+glmer3 <- glmer(y ~ b*a*d + (1 | as.factor(z)),family='poisson', offset = o)
+glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+
+```
+
+```{r LRT}
+
+logLik(glmer3)[1]
+logLik(glmer0)[1]
+LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+LRT
+pchisq(LRT, df=1, lower.tail=FALSE)*258
+
+```
+
+
+
+```{r Mean sq and Fval}
+
+# calculate mean sq for variables
+tmp_Fval = anova(glmer3)
+tmp_Fval = tibble("var"= rownames(tmp_Fval),
+                  tmp_Fval)
+
+
+# Calculate mean square error 
+
+tmp_obs = y
+tmp_predict = predict(glmer3)
+
+
+##  sum of squares of the residual error (SSE)
+tmp_SSE = sum((tmp_obs - tmp_predict)^2)
+
+## mean square of the error (MSE)
+tmp_dfE = length(y)-sum(tmp_Fval$npar)-1
+
+tmp_MSE = tmp_SSE / tmp_dfE
+
+# calculate F_value
+tmp_Fval$`F value` <- tmp_Fval$`Mean Sq`/tmp_MSE
+
+tmp_Fval <- rbind(tmp_Fval,
+                  tibble("var"="Residuals","npar"=tmp_dfE,
+                         "Sum Sq"=tmp_SSE,"Mean Sq"=tmp_MSE,
+                         "F value"=NA))
+                  
+
+```
+
+```{r pval}
+
+
+tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+tmp_pval = tibble("var"=rownames(tmp_pval),
+                  tmp_pval)
+
+tmp_val = left_join(tmp_Fval,tmp_pval)
+tmp_val = tibble("OTU"= rep(tmp_OTU,nrow(tmp_val)),
+                 tmp_val)
+
+
+```
+
+```{r global df}
+
+tmp_global = tibble()
+
+
+
+tmp_global = rbind(tmp_global,tmp_val)
+
+# bonferroni p-val correction
+tmp_global[,"pval_adjust"] <- tmp_global$`Pr(>Chisq)` * ntaxa(tmp_ps)
+# p val significance
+tmp_global[,"pval_signif"] <- ifelse(tmp_global$pval_adjust <= 0.05,"*","")
+tmp_global[,"pval_signif"] <- ifelse(tmp_global$pval_adjust <= 0.01,"**",tmp_global$pval_signif)
+tmp_global[,"pval_signif"] <- ifelse(tmp_global$pval_adjust <= 0.001,"***",tmp_global$pval_signif)
+
+```
+
+
+
+### loop
+
+```{r loop}
+rm(b,a,d,o,z,tmp_global,
+   y,glmer3,glmer0,LRT,tmp_LRT_pchisq,
+   tmp_Fval,tmp_pval,tmp_val)
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+
+# define model variables
+## treatments
+b = tmp_ps@sam_data$broth
+a = tmp_ps@sam_data$incub
+d = tmp_ps@sam_data$density
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z <- tmp_ps@sam_data$sample
+
+# global df
+tmp_global = tibble()
+
+
+
+
+for (i in 1:ntaxa(tmp_ps)) {
+  
+  tmp_OTU = taxa_names(tmp_ps)[i]
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  # models
+  glmer3 <- glmer(y ~ b*a*d + (1 | as.factor(z)),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+  
+  # LRT
+  LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+  
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # Mean sq and Fval
+    ## calculate mean square for variables
+    tmp_Fval = anova(glmer3)
+    tmp_Fval = tibble("var"= rownames(tmp_Fval),tmp_Fval)
+    # Calculate mean square error
+    tmp_obs = y
+    tmp_predict = predict(glmer3)
+    ##  sum of squares of the residual error (SSE)
+    tmp_SSE = sum((tmp_obs - tmp_predict)^2)
+    ## mean square of the error (MSE)
+    tmp_dfE = length(y)-sum(tmp_Fval$npar)-1
+    tmp_MSE = tmp_SSE / tmp_dfE
+    # calculate F-value
+    tmp_Fval$`F value` <- tmp_Fval$`Mean Sq`/tmp_MSE
+    tmp_Fval <- rbind(tmp_Fval,
+                      tibble("var"="Residuals","npar"=tmp_dfE,
+                             "Sum Sq"=tmp_SSE,"Mean Sq"=tmp_MSE,
+                             "F value"=NA))
+    # calculate CHisq pvalue
+    tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+    tmp_pval = tibble("var"=rownames(tmp_pval),tmp_pval)
+    # join tibbles
+    tmp_val = left_join(tmp_Fval,tmp_pval)
+    tmp_val = tibble("OTU"= rep(tmp_OTU,nrow(tmp_val)),tmp_val)
+  } else {
+    tmp_var = c("b","a","d","b:a","b:d","a:d","b:a:d","Residuals")
+    tmp_val = tibble("OTU"= rep(tmp_OTU,length(tmp_var)),
+                     "var"=tmp_var,
+                     "npar"=rep(NA,length(tmp_var)),"Sum Sq"=rep(NA,length(tmp_var)),
+                     "Mean Sq"=rep(NA,length(tmp_var)),"F value"=rep(NA,length(tmp_var)),
+                     "Chisq"=rep(NA,length(tmp_var)),"Df"=rep(NA,length(tmp_var)),
+                     "Pr(>Chisq)"=c(rep(1,length(tmp_var)-1),NA))
+  }
+  
+  # global df
+  tmp_global = rbind(tmp_global,tmp_val)
+  
+  print(i)
+  
+  rm(y,glmer3,glmer0,LRT,tmp_LRT_pchisq,
+     tmp_Fval,tmp_pval,tmp_val)
+
+}
+
+# bonferroni p-val correction: 258 OTUs * (3 factor main effects + 4 factor interactions)
+tmp_global[,"pval_adjust"] <- tmp_global$`Pr(>Chisq)` * 258 * (3+4)
+# p val significance
+tmp_global[,"pval_signif"] <- ifelse(tmp_global$pval_adjust <= 0.05,"*","")
+tmp_global[,"pval_signif"] <- ifelse(tmp_global$pval_adjust <= 0.01,"**",tmp_global$pval_signif)
+tmp_global[,"pval_signif"] <- ifelse(tmp_global$pval_adjust <= 0.001,"***",tmp_global$pval_signif)
+
+#stat_q1_otu = tmp_global
+
+```
+
+```{r relative F_value}
+
+tmp = stat_q1_otu
+tmp[,"var_type"] <- ifelse(tmp$var %in% c("a","b","d"),"main",
+                           ifelse(tmp$var %in% c("b:a","a:d","b:d"),"double",
+                                  ifelse(tmp$var == "b:a:d","triple",
+                                         NA)))
+tmp[,"rel_fval"] <- ifelse(tmp$pval_adjust <= 0.05,tmp$`F value`,NA)
+View(tmp)
+
+tmp <- tmp %>%
+  group_by(OTU,var_type) %>%
+  mutate(rel_fval = rel_fval/sum(rel_fval,na.rm = T))
+tmp$rel_fval <- ifelse(tmp$pval_adjust >0.05,0,tmp$rel_fval)
+
+stat_q1_otu_rel <- tmp
+
+```
+
+
+### phylogenetic signal
+
+http://www.phytools.org/static.help/phylosig.html
+```{r with phytools}
+library(phytools)
+
+tmp_ps = ps_16S_fltr
+
+# select trait
+## f value proportion
+tmp_fval_prop <- tibble("OTU"=taxa_names(tmp_ps),
+                        "a"=NA,
+                        "b"=NA,
+                        "d"=NA)
+
+for (tmp_OTU in taxa_names(tmp_ps)) {
+  ### for main effect
+  tmp_df = stat_q1_otu
+  tmp_df = tmp_df[tmp_df$OTU == tmp_OTU & tmp_df$var %in% c("a","b","d"),]
+  tmp_df$`F value` <- ifelse(tmp_df$pval_adjust <= 0.05,tmp_df$`F value`,0)
+  
+  if (sum(tmp_df$`F value`) == 0) {
+    tmp_fval_prop$a[tmp_fval_prop$OTU == tmp_OTU] <- 0
+    tmp_fval_prop$b[tmp_fval_prop$OTU == tmp_OTU] <- 0
+    tmp_fval_prop$d[tmp_fval_prop$OTU == tmp_OTU] <- 0
+  } else {
+    tmp_fval_prop$a[tmp_fval_prop$OTU == tmp_OTU] <- tmp_df$`F value`[tmp_df$var == "a"] / sum(tmp_df$`F value`)
+    tmp_fval_prop$b[tmp_fval_prop$OTU == tmp_OTU] <- tmp_df$`F value`[tmp_df$var == "b"] / sum(tmp_df$`F value`)
+    tmp_fval_prop$d[tmp_fval_prop$OTU == tmp_OTU] <- tmp_df$`F value`[tmp_df$var == "d"] / sum(tmp_df$`F value`)
+  }
+  
+}
+# test phylogenetic signal
+## select trait
+tmp_trait = as.vector(tmp_fval_prop$d)
+names(tmp_trait) <- tmp_fval_prop$OTU
+## test
+phytools::phylosig(tmp_ps@phy_tree,tmp_trait,test = T)
+
+```
+
+https://hal.inria.fr/hal-01426773/document
+```{r with phylosignal}
+library(phylosignal)
+library(adephylo)
+library(ape)
+library(phylobase)
+
+tmp_p4d <- phylo4d(tmp_ps@phy_tree,tmp_fval_prop[,-1])
+
+barplot.phylo4d(tmp_p4d, tree.type = "phylo", tree.ladderize = TRUE)
+
+```
+
+
+
+# test with Stephane Robin
+
+```{r create dataset}
+
+r <- 10
+x = c(rep(0, r), rep(1, r))
+y <- c(rpois(r, 5), rpois(r,50)) # if OTU 1-fold more abundant in one treatment
+z <- 1:(2*r)
+
+```
+
+```{r LRT for overdispersed Poisson GLM}
+library(lme4)
+
+glmer1 <- glmer(y ~ as.factor(x) + (1 | as.factor(z)), family=poisson)
+glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)), family=poisson)
+logLik(glmer1)[1]
+logLik(glmer0)[1]
+LRT <- 2*(logLik(glmer1)[1] - logLik(glmer0)[1])
+LRT
+pchisq(LRT, df=1, lower.tail=FALSE)
+
+```
+
+```{r LRT for Poisson GLM 'à la main'}
+
+y <- c(rep(0, r), rpois(r, 5)) # if OTU absent from 1 treatment
+
+logLik1 <- sum(dpois(y[1:r], mean(y[1:r]), log=TRUE)) +sum(dpois(y[r+(1:r)], mean(y[r+(1:r)]), log=TRUE))
+logLik0 <- sum(dpois(y, mean(y), log=TRUE))
+
+LRT <- 2*(logLik1 - logLik0)
+LRT
+
+pchisq(LRT, df=1, lower.tail=FALSE)
+
+```
+
+
+```{r}
+rm(r,x,y,z,glmer1,glmer0,LRT,logLik1,logLik0)
+```
+

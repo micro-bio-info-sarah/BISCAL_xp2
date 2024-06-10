@@ -1,0 +1,364 @@
+---
+title: "6.2.Interaction_Compass"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(PLNmodels)
+library(tibble)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggplot2)
+
+library(gdata)
+
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# plot OTU abundance
+
+```{r plot 1 OTU abundance}
+
+tmp_OTU = "OTU-45"
+
+tmp_ps = ps_16S_micro
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps)==tmp_OTU,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+
+
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance))+
+  geom_boxplot()+
+  geom_jitter(color="red", size=2, alpha=0.9) +
+  labs(title = tmp_OTU,y="Relative abundance (among non filtered OTUs)",x="Treatments")+
+#  labs(title = tmp_OTU,y="Raw abundance (log10 scale)",x="Treatments")+
+  scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  theme(axis.text.x  = element_text(angle = 90))
+  
+p
+
+```
+
+```{r plot several OTU abundance}
+
+#tmp_OTU = sort(setdiff(taxa_names(ps_16S_fltr),taxa_names(tmp_ps_fltr2)))
+tmp_OTU = tmp_nodes
+tmp_OTU = c(tmp_edges_otu$source[1],tmp_edges_otu$target[1])
+tmp_OTU = c("OTU-2667","OTU-66662")
+
+tmp_ps = ps_16S_micro
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% tmp_OTU,tmp_ps)
+
+tmp_data = psmelt(tmp_ps)
+
+
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance))+
+  geom_boxplot()+
+  geom_jitter(color="red", size=0.5, alpha=0.9) +
+  labs(title = "Node OTUs",y="Relative abundance (among all OTUs)",x="Treatments")+
+#  labs(title = tmp_OTU,y="Raw abundance (log10 scale)",x="Treatments")+
+  scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  facet_wrap(vars(OTU))+
+  theme(axis.text.x  = element_text(angle = 90))
+
+p
+
+```
+
+# extract network
+
+```{r extract nodes}
+
+tmp_model.StARS = PLN_model.StARS_xp2
+
+# graph adjacency matrix (value = partial correlation value)
+tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+# remove redundant data from the matrix
+diag(tmp_adjacency.StARS)=0
+tmp_adj=tmp_adjacency.StARS
+tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+# define a partial correlation threshold
+tmp_thrld = 0.06
+# extract edges above a threshold and involved nodes
+tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+tmp_edges_val = tmp_adj[tmp_edges]
+tmp_edges_otu <- tibble("source"=rownames(tmp_adj)[tmp_edges[,1]],
+                        "target"=colnames(tmp_adj)[tmp_edges[,2]],
+                        "value"=tmp_edges_val)
+## name edges
+tmp_edges_otu[tmp_edges_otu$value > 0,"edge_id"] <- rank(tmp_edges_otu$value[tmp_edges_otu$value >0],
+                                                         ties.method = "random")
+tmp_edges_otu[tmp_edges_otu$value < 0,"edge_id"] <- rank(tmp_edges_otu$value[tmp_edges_otu$value <0],
+                                                         ties.method = "random")
+tmp_edges_otu$edge_id <- ifelse(tmp_edges_otu$value > 0,
+                                paste0("pos_",
+                                       nrow(tmp_edges_otu[tmp_edges_otu$value > 0,])-
+                                         tmp_edges_otu$edge_id +1),
+                                paste0("neg_",tmp_edges_otu$edge_id))
+
+# extract involved nodes
+tmp_nodes <- unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+
+rm(tmp_adj,tmp_adjacency.StARS,tmp_model.StARS,tmp_thrld,tmp_edges,tmp_edges_val)
+
+```
+
+# compare edges with diff abund
+
+```{r without loop}
+
+i= 1
+
+tmp_global_df = tibble()
+
+# select interaction
+tmp_interact = tmp_edges_otu[i,]
+tmp_interact =tmp_edges_otu[tmp_edges_otu$edge_id == "pos_37",]
+
+# select diff abund for source and target
+tmp_data = stat_q2_otu_comparison_sum
+## select comparisons with control
+tmp_data = tmp_data[complete.cases(tmp_data),]
+tmp_data = tmp_data[tmp_data$g1 == "C",]
+tmp_data$pval_adjust <- tmp_data$p.value *258 *12
+## select comp with source and target
+tmp_data <- tmp_data[tmp_data$OTU %in% c(tmp_interact$source,tmp_interact$target),]
+## select sgnif comp
+tmp_data <- tmp_data[tmp_data$pval_adjust <= 0.05,]
+## select were both source and target are signif
+tmp_source_ttt = tmp_data$g2[tmp_data$OTU == tmp_interact$source]
+tmp_target_ttt = tmp_data$g2[tmp_data$OTU == tmp_interact$target]
+tmp_ttt = intersect(tmp_source_ttt,tmp_target_ttt)
+tmp_data <- tmp_data[tmp_data$g2 %in% tmp_ttt,]
+## average estimate
+tmp_source_estimate = mean(tmp_data$estimate[tmp_data$OTU == tmp_interact$source])
+tmp_target_estimate = mean(tmp_data$estimate[tmp_data$OTU == tmp_interact$target])
+
+if (length(tmp_ttt) > 1) {
+  
+  # plot data
+  tmp_df = tibble("interaction"=paste0(tmp_interact$edge_id,tmp_ttt),
+                       "source_estimate"=tmp_data$estimate[tmp_data$OTU ==tmp_interact$source],
+                       "target_estimate"=tmp_data$estimate[tmp_data$OTU ==tmp_interact$target])
+  tmp_df[,"F_A"] <- ifelse(tmp_df$target_estimate >0,tmp_df$source_estimate,-tmp_df$source_estimate)
+  tmp_df[,"F_B"] <- ifelse(tmp_df$source_estimate >0,tmp_df$target_estimate,-tmp_df$target_estimate)
+  
+  
+}
+
+```
+
+```{r loop}
+
+tmp_global_df = tibble()
+
+for (i in 1:nrow(tmp_edges_otu)) {
+  
+  # select interaction
+  tmp_interact = tmp_edges_otu[i,]
+  
+  # select diff abund for source and target
+  tmp_data = stat_q2_otu_comparison_sum
+  ## select comparisons with control
+  tmp_data = tmp_data[complete.cases(tmp_data),]
+  tmp_data = tmp_data[tmp_data$g1 == "C",]
+  tmp_data$pval_adjust <- tmp_data$p.value *258 *12
+  ## select comp with source and target
+  tmp_data <- tmp_data[tmp_data$OTU %in% c(tmp_interact$source,tmp_interact$target),]
+  ## select sgnif comp
+  tmp_data <- tmp_data[tmp_data$pval_adjust <= 0.05,]
+  ## select were both source and target are signif
+  tmp_source_ttt = tmp_data$g2[tmp_data$OTU == tmp_interact$source]
+  tmp_target_ttt = tmp_data$g2[tmp_data$OTU == tmp_interact$target]
+  tmp_ttt = intersect(tmp_source_ttt,tmp_target_ttt)
+  tmp_data <- tmp_data[tmp_data$g2 %in% tmp_ttt,]
+  ## average estimate
+  tmp_source_estimate = mean(tmp_data$estimate[tmp_data$OTU == tmp_interact$source])
+  tmp_target_estimate = mean(tmp_data$estimate[tmp_data$OTU == tmp_interact$target])
+  
+  if (length(tmp_ttt) > 1) {
+    
+    # global df
+    tmp_df = tibble("interaction"=rep(tmp_interact$edge_id,length(tmp_ttt)),
+                    "treatment"=tmp_ttt,
+                    "source_estimate"=tmp_data$estimate[tmp_data$OTU ==tmp_interact$source],
+                    "target_estimate"=tmp_data$estimate[tmp_data$OTU ==tmp_interact$target])
+    tmp_df[,"F_A"] <- ifelse(tmp_df$target_estimate >0,tmp_df$source_estimate,-tmp_df$source_estimate)
+    tmp_df[,"F_B"] <- ifelse(tmp_df$source_estimate >0,tmp_df$target_estimate,-tmp_df$target_estimate)
+    
+    tmp_df1 = tibble("interaction"=tmp_interact$edge_id,
+                     "F_A"=mean(tmp_df$F_A),
+                     "F_B"=mean(tmp_df$F_B))
+
+    tmp_global_df <- rbind(tmp_global_df,tmp_df1)
+  
+  }
+  
+}
+
+# plot data
+tmp_plot_data = tmp_global_df
+
+```
+
+si source +1 puis -1 et target -1 puis +1 alors moyenne = 0 alors que ça devrais être ???
+=> soit un point (+1,-1) et un point (-1,+1)
+=> soit un point (-1,-1) car quand j'ajoute l'un, l'autre diminue
+==> x = effet de B sur A: donc quand target augmente, ce qui se passe pour source
+==> y = effet de A sur B donc quand source augmente, ce qui se passe pour target
+
+comment differencier une compétition d'un antagonisme ? mon exemple +1/-1 est-il une compétition ou un antagonisme ?
+prédation : proie (+1) => prédator +1 mais prédator +1 => proie -1
+compétition : A +1 => B-1 & B+1 => A-1
+
+```{r plot}
+
+p <- ggplot(tmp_plot_data,aes(x=F_A,y=F_B))+
+  geom_point(aes(colour = factor(interaction)))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  xlim(c(-10,10))+
+  ylim(c(-10,10))+
+  theme_bw()
+
+p
+```
+
+
+# estimate fitness
+see Letten, 2017 Ecological monographs
+
+```{r without loop}
+
+i= 69
+
+# select edge
+tmp_interaction = tmp_edges_otu[i,]
+# select source and target abundance
+tmp_ps = ps_16S_fltr
+tmp_ps <- prune_taxa(taxa_names(tmp_ps)%in%c(tmp_interaction$source,tmp_interaction$target),
+                     tmp_ps)
+tmp_ps_melt = psmelt(tmp_ps)
+tmp_data = pivot_wider(tmp_ps_melt[,c("OTU","sample","Abundance")],
+                       names_from = "OTU",values_from = "Abundance")
+
+## change colnames
+colnames(tmp_data)[which(colnames(tmp_data) %in% tmp_interaction$source)] <- "source"
+colnames(tmp_data)[which(colnames(tmp_data) %in% tmp_interaction$target)] <- "target"
+
+# find relation between OTUs
+library(ggpubr)
+p <- ggplot(tmp_data,aes(x=source,y=target))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  stat_regline_equation()
+
+p
+
+tmp_data[,"fitness_ratio"] <- tmp_data[,tmp_interaction$source] / tmp_data[,tmp_interaction$target]
+
+
+
+```
+
+il y a des échantillons où l'un des deux OTUs est à zéros => équivalent à cultiver en solo !!! donc on peut calculer l'effet de l'uine sur l'autre selon la méthode de Kehe 2021
+
+# relative interaction index
+
+see Armas, 2004, Ecology Letters; Chamberlain, 2014, Ecology Letters
+
+$$RII=B_{w}-B_{0}/B_{w}+B_{0} $$
+
+
+```{r relative interaction index}
+
+tmp_global_df = tibble()
+
+for (i in 1:nrow(tmp_edges_otu)) {
+  
+  # select edge
+  tmp_interaction = tmp_edges_otu[i,]
+  # select source and target abundance
+  tmp_ps = ps_16S_fltr
+  tmp_ps <- prune_taxa(taxa_names(tmp_ps)%in%c(tmp_interaction$source,tmp_interaction$target),
+                       tmp_ps)
+  tmp_ps_melt = psmelt(tmp_ps)
+  tmp_data = pivot_wider(tmp_ps_melt[,c("OTU","sample","Abundance")],
+                         names_from = "OTU",values_from = "Abundance")
+  ## change colnames
+  colnames(tmp_data)[which(colnames(tmp_data) %in% tmp_interaction$source)] <- "source"
+  colnames(tmp_data)[which(colnames(tmp_data) %in% tmp_interaction$target)] <- "target"
+  
+  # calculate RII for source
+  tmp_source_b0 = median(tmp_data$source[tmp_data$target==0])
+  tmp_source_bw = median(tmp_data$source[tmp_data$target!=0])
+  tmp_source_rii = (tmp_source_bw - tmp_source_b0)/(tmp_source_bw + tmp_source_b0)
+  
+  # calculate RII for target
+  tmp_target_b0 = median(tmp_data$target[tmp_data$source==0])
+  tmp_target_bw = median(tmp_data$target[tmp_data$source!=0])
+  tmp_target_rii = (tmp_target_bw - tmp_target_b0)/(tmp_target_bw + tmp_target_b0)
+  
+  tmp_df = tibble("interaction"=tmp_interaction$edge_id,
+                         "F_A"=tmp_source_rii,
+                         "F_B"=tmp_target_rii)
+  
+  tmp_global_df = rbind(tmp_global_df,tmp_df)
+  
+}
+
+tmp_plot_data = tmp_global_df[complete.cases(tmp_global_df),]
+
+
+
+```
+
+```{r plot}
+
+p <- ggplot(tmp_plot_data,aes(x=F_A,y=F_B))+
+  geom_point(aes(colour = factor(interaction)))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  xlim(c(-1,1))+
+  ylim(c(-1,1))+
+  theme_bw()
+
+p
+```
+
+
+je devrais vérifier la variance des b0 et bw pour chaque OTU ...
+des résultats très différents si j'utilise la moyenne ou bien la médian pour calculer les b0 et bw
+
+
+
+
+
+
+
+
+
+
+
+
+

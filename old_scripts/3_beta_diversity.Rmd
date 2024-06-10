@@ -1,0 +1,604 @@
+---
+title: "3_beta_diversity"
+author: "Sarah HUET"
+date: "2021 M03 10"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(ggplot2)
+library(tibble)
+library(dplyr)
+
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# Calculate distance matrix and ordination
+
+```{r select data}
+
+tmp_ps0 = ps_16S
+
+tmp_sample_type = "microcosm" #  | suspension | all| modif_susp
+
+# select sample type
+if (tmp_sample_type == "microcosm") {
+  tmp_ps = ps_16S_micro
+  tmp_C = "C"
+}
+if (tmp_sample_type == "suspension") {
+  tmp_ps = ps_16S_susp
+  tmp_C = "susp_C"
+}
+if (tmp_sample_type == "modif_susp"){
+  tmp_ps = ps_16S_susp
+  tmp_C = "susp_C"
+}
+if (tmp_sample_type == "all") {
+  tmp_ps = ps_16S
+  tmp_C = "T0"
+}
+
+```
+
+```{r calculate distance matrix and ordination}
+
+# rarefy dataset
+set.seed(8000)
+tmp_ps = rarefy_even_depth(tmp_ps,rngseed = T)
+# choose distance index
+tmp_index = "wunifrac"
+# calculate distances
+tmp_dist = distance(tmp_ps,tmp_index)
+# calculate ordination
+tmp_ordin = ordinate(tmp_ps, "PCoA", distance = tmp_dist)
+
+
+```
+
+OTUs removed during rarefactions: microcosms -> 135 | susp -> 133 | all -> 2
+
+
+# PCoA
+
+```{r 2D, width = 16,height = 12 }
+
+# select samples coordinates for ordination plot
+tmp_data_2D <- tibble("sample" = as.numeric(rownames(tmp_ordin[["vectors"]])),
+                      "x" = tmp_ordin[["vectors"]][,1],
+                      "y" = tmp_ordin[["vectors"]][,2])
+# select axis titles
+tmp_x_lab = round(tmp_ordin[["values"]][["Relative_eig"]][1]*100,2)
+tmp_x_lab <- paste0("Axis 1: ",tmp_x_lab," %")
+tmp_y_lab = round(tmp_ordin[["values"]][["Relative_eig"]][2]*100,2)
+tmp_y_lab <- paste0("Axis 2: ",tmp_y_lab," %")
+# add treatment, color, order, shape, etc
+tmp_data_2D <- left_join(tmp_data_2D,tmp_ps@sam_data[,c("sample","treatment")], by = "sample")
+tmp_data_2D <- left_join(tmp_data_2D,Colors_treatments,by = "treatment")
+tmp_data_2D <- tmp_data_2D %>% arrange(sample)
+## change shape
+tmp_data_2D$shape <- 21
+
+# select data for control ellipse
+tmp_data_ellipse = tmp_data_2D[tmp_data_2D$treatment == tmp_C,]
+
+
+tmp_plot_title = paste0("PCOA_",tmp_index,"_",tmp_sample_type)
+
+### plot
+p = ggplot(tmp_data_2D)+
+  aes(x=x,y=y) +
+  geom_point(shape = tmp_data_2D$shape,
+             size = 3,
+             fill = tmp_data_2D$color) +
+  scale_fill_manual(labels = levels(reorder(tmp_data_2D$treatment,tmp_data_2D$order)),
+                    values = levels(reorder(tmp_data_2D$color,tmp_data_2D$order))) +
+  scale_shape_identity() + 
+  theme_bw() +
+  labs(title = tmp_plot_title,x =  paste0("\n",tmp_x_lab), 
+       y = paste0("\n",tmp_y_lab))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "none",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  guides(fill = guide_legend(override.aes = list(shape = 21,
+                                                 size =12),
+                             title = "Legend",
+                             ncol = 3),
+         size = "none")+ 
+  stat_ellipse(data = tmp_data_ellipse, colour = unique(tmp_data_ellipse$color),size=2)
+
+p
+
+
+#fig_div[[paste0(tmp_sample_type,"_",tmp_index)]] <- p
+
+
+```
+
+# Data for distance barplot 
+
+## distance to control
+
+```{r select distances from the control}
+
+library(reshape2)
+
+# wrangle distance matrix into a longer dataframe
+tmp_dist_matrix = melt(as.matrix(tmp_dist))
+# remove self-comparisons
+tmp_dist_matrix = tmp_dist_matrix[tmp_dist_matrix$Var1 != tmp_dist_matrix$Var2,]
+# select sample data
+tmp_sam_data = tibble("sample"=as.numeric(tmp_ps@sam_data$sample),
+                      "treatment"=tmp_ps@sam_data$treatment)
+# combined distance matrix with sample data
+colnames(tmp_sam_data) = c("Var1", "treatment1")
+tmp_data <- left_join(tmp_dist_matrix, tmp_sam_data, by = "Var1")
+colnames(tmp_sam_data) = c("Var2", "treatment2")
+tmp_data <- left_join(tmp_data, tmp_sam_data, by = "Var2")
+# select distances from the control
+tmp_data <- tmp_data[tmp_data$treatment1 == tmp_C,]
+
+if (tmp_sample_type == "modif_susp"){
+  tmp_data <- tmp_data[!tmp_data$treatment2 %in% c("T0","susp_C"),]
+}
+
+```
+
+```{r statistic test}
+
+library(agricolae)
+
+# linear model
+tmp_lm = lm(tmp_data$value ~ tmp_data$treatment2, na.action = na.omit )
+summary(tmp_lm)
+# anova
+anova(tmp_lm)
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+# post hoc Tukey test
+tmp_comp <- HSD.test(tmp_aov,'tmp_data$treatment',alpha = 0.05,group = T)
+# tibble with statistical groups
+tmp_stat = tibble("treatment"=rownames(tmp_comp[["groups"]]),
+                  "mean"=tmp_comp[["groups"]][["tmp_data$value"]],
+                  "stat_groups"=tmp_comp[["groups"]][["groups"]])
+
+
+if (tmp_sample_type %in% c("suspension","all")) {
+  tmp_value_t0 = tmp_data$value[tmp_data$treatment2 =="T0"]
+  tmp_ttts <- unique(tmp_data$treatment2)[-1]
+  tmp_t.test = vector()
+  tmp_names = vector()
+  for (tmp_ttt in tmp_ttts) { #tmp_ttt = tmp_ttts[1]
+    # values
+    tmp_value_ttt = tmp_data$value[tmp_data$treatment2 == tmp_ttt]
+    # t-test
+    tmp = t.test(tmp_value_t0,tmp_value_ttt)
+    # extract p.value
+    tmp_t.test[length(tmp_t.test)+1] <- tmp$p.value
+    tmp_names[length(tmp_names)+1] = paste0("T0-",tmp_ttt)
+  }
+  tmp_p.adjust = tmp_t.test*length(tmp_t.test) # bonferroni correction
+  ## letters
+  names(tmp_p.adjust) <- tmp_names
+  tmp_p.adjust
+  tmp_p.adjust <= 0.05
+}
+
+
+```
+
+```{r barplot, width = 5.5,height = 6}
+
+#library(Rmisc)
+
+tmp_plot_data = tmp_data
+tmp_plot_data = tibble("treatment" = tmp_plot_data$treatment2,
+                       "sample" = tmp_plot_data$Var2,
+                       "value"=tmp_plot_data$value)
+tmp_plot_data = left_join(tmp_plot_data,Colors_treatments,by="treatment")
+tmp_plot_stat = left_join(tmp_stat,Colors_treatments,by="treatment")
+# calculate  confidence interval for comparison between the control samples
+#tmp_ci = CI(tmp_data[tmp_data$treatment1 == "C" & tmp_data$treatment2 == "C","value"], ci = 0.95)
+
+tmp_plot_title = "16S_betadiv_microcosm"
+tmp_y_lim = c(0,max(tmp_data$value)*1.2)
+tmp_plot_stat[,"stat_y"] = max(tmp_data$value)*1.1
+
+
+### plot
+
+p <- ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               y = value)) +
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               linetype = 1,
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  labs(x="Treatment", y= paste0("\n",tmp_index,"Distances"), title = tmp_plot_title, color = "#333333")+
+  coord_flip(ylim = tmp_y_lim)+
+  #scale_y_continuous(expand = c(0,0))+
+  theme_bw()+
+  theme(title = element_text(face="bold", size=12),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=10), 
+        axis.text.x  = element_text(vjust=0.5, size=8,angle = 0),
+        axis.title.y = element_text(face="bold", size=10), 
+        axis.text.y  = element_text(vjust=0.5, size=8),
+        strip.text = element_text(face="bold", size=8),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  stat_summary(geom = "linerange", fun.data = mean_se, width=0.5,color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            mapping = aes(label = stat_groups,y = stat_y,x=treatment),
+            colour="#333333", size=8,inherit.aes = F, angle = 0,
+            position = position_nudge(x = -0.225))
+  
+p
+
+#fig_div[[paste0(tmp_sample_type,"_",tmp_index,"_distance_tukey")]] <- p
+
+
+```
+
+# test
+
+## multiple comparison
+
+```{r wrangle distance matrix to df}
+
+library(reshape2)
+
+# wrangle distance matrix into a longer dataframe
+tmp_dist_matrix = melt(as.matrix(tmp_dist))
+# remove self-comparisons
+tmp_dist_matrix = tmp_dist_matrix[tmp_dist_matrix$Var1 != tmp_dist_matrix$Var2,]
+# select sample data
+tmp_sam_data = tibble("sample"=as.numeric(tmp_ps@sam_data$sample),
+                      "treatment"=tmp_ps@sam_data$treatment)
+# combined distance matrix with sample data
+colnames(tmp_sam_data) = c("Var1", "treatment1")
+tmp_data <- left_join(tmp_dist_matrix, tmp_sam_data, by = "Var1")
+colnames(tmp_sam_data) = c("Var2", "treatment2")
+tmp_data <- left_join(tmp_data, tmp_sam_data, by = "Var2")
+# remove T0
+#tmp_data <- tmp_data[tmp_data$treatment1 != "T0" & tmp_data$treatment2 != "T0",]
+
+```
+
+```{r multiple comparison}
+library(emmeans)
+
+tmp_lm = lm(tmp_data$value ~tmp_data$treatment1+tmp_data$treatment2, na.action = na.omit )
+
+# multiple comparaison
+tmp_emmeans = emmeans(tmp_lm,pairwise~treatment1,adjust="tukey")
+## select p value
+tmp_emmeans_sum = summary(tmp_emmeans)
+tmp_emmeans_sum = tmp_emmeans_sum[["contrasts"]]
+## Bonferroni correction
+tmp_df = tmp_emmeans_sum
+#tmp_df[,"pval_adjust"] <- tmp_df$p.value * nrow(tmp_emmeans_sum)
+
+## wrangle summary
+tmp = unlist(strsplit(as.character(tmp_df$contrast)," - "))
+tmp_df[,"g1"] <- tmp[seq(1,length(tmp),by=2)]
+tmp_df[,"g2"] <- tmp[seq(2,length(tmp),by=2)]
+
+    
+    
+
+```
+
+## ellipse center
+
+```{r TEST select distances from control ellipse center}
+
+# get data from ggplot ellipse
+tmp_data = ggplot_build(fig_div[[paste0(tmp_sample_type,"_",tmp_index)]])
+tmp_data <- tmp_data$data[[2]][c("x","y")]
+
+# calculate ellipse center
+tmp_center <- MASS::cov.trob(tmp_data)$center
+
+
+
+
+```
+
+## 3d
+```{r 3D}
+# https://plotly-r.com/index.html
+library(plotly)
+
+# select data
+tmp_data_3D <- tibble("sample" = as.numeric(rownames(tmp_ordin[["vectors"]])),
+                      "x" = tmp_ordin[["vectors"]][,1],
+                      "y" = tmp_ordin[["vectors"]][,2],
+                      "z" = tmp_ordin[["vectors"]][,3])
+
+tmp_x_lab = round(tmp_ordin[["values"]][["Relative_eig"]][1]*100,2)
+tmp_x_lab <- paste0("Axis 1: ",tmp_x_lab," %")
+
+tmp_y_lab = round(tmp_ordin[["values"]][["Relative_eig"]][2]*100,2)
+tmp_y_lab <- paste0("Axis 2: ",tmp_y_lab," %")
+
+tmp_z_lab = round(tmp_ordin[["values"]][["Relative_eig"]][3]*100,2)
+tmp_z_lab <- paste0("Axis 3: ",tmp_z_lab," %")
+
+# add treatment, color, order, shape, etc
+tmp_data_3D <- left_join(tmp_data_3D,tmp_ps@sam_data[,c("sample","treatment")], by = "sample")
+tmp_data_3D <- left_join(tmp_data_3D,Colors_treatments,by = "treatment")
+tmp_data_3D <- tmp_data_3D %>% arrange(sample)
+
+# select plot title
+tmp_plot_title = paste0("PCoA 3D of ",tmp_index," distance")
+
+### plot
+
+p <- plot_ly(tmp_data_3D, x = ~x, y = ~y, z = ~z,
+             color = reorder(tmp_data_3D$treatment,tmp_data_3D$order),
+             colors = levels(reorder(tmp_data_3D$color,tmp_data_3D$order))) %>% 
+  add_markers(marker = list(symbol = 'circle', 
+                            sizemode = 'diameter',
+                            line = list(color = '#000000',width = 2))) %>% 
+  layout(title = tmp_plot_title,
+                  scene = list(xaxis = list(title = tmp_x_lab),
+                               yaxis = list(title = tmp_y_lab),
+                               zaxis = list(title = tmp_z_lab)))
+
+p
+#gdata::mv("p",paste0("plot_pcoa_3d_",tmp_plot_name))
+
+```
+
+## PERMANOVA
+
+```{r calculate similarity}
+
+library(reshape2)
+
+# wrangle distance matrix into a longer dataframe
+tmp_dist_matrix = melt(as.matrix(tmp_dist))
+# remove self-comparisons
+tmp_dist_matrix = tmp_dist_matrix[tmp_dist_matrix$Var1 != tmp_dist_matrix$Var2,]
+# select sample data
+tmp_sam_data = tibble("sample"=tmp_ps@sam_data$sample,
+                      "treatment"=tmp_ps@sam_data$treatment)
+# combined distance matrix with sample data
+colnames(tmp_sam_data) = c("Var1", "treatment1")
+tmp_data <- left_join(tmp_dist_matrix, tmp_sam_data, by = "Var1")
+colnames(tmp_sam_data) = c("Var2", "treatment2")
+tmp_data <- left_join(tmp_data, tmp_sam_data, by = "Var2")
+# select distances from the control
+tmp_data <- tmp_data[tmp_data$treatment1 == tmp_C,]
+
+# calculate similarity
+tmp_data[,"similarity"] <- 1 -tmp_data$value
+
+```
+
+```{r PERMANOVA}
+
+library(vegan)
+
+tmp_matrix = as.matrix(tmp_dist)
+str(tmp_matrix)
+
+# check samples and treatments
+tmp_ttt = tmp_ps@sam_data$treatment
+tmp_ttt[1:15]
+rownames(tmp_matrix)[1:15]
+
+# adonis
+tmp_adonis = adonis(formula = tmp_matrix ~ tmp_ttt, permutations = 9999)
+tmp_adonis$aov.tab
+
+library(devtools)
+library(pairwiseAdonis)
+
+tmp_adonis_pair = pairwise.adonis(tmp_matrix, factors=tmp_ttt,p.adjust.m='BH')
+# subset pairs name
+tmp = unlist(strsplit(tmp_adonis_pair$pairs," vs "))
+tmp_adonis_pair[,"a"] <- tmp[seq(1,length(tmp),by=2)]
+tmp_adonis_pair[,"b"] <- tmp[seq(2,length(tmp),by=2)]
+
+# reorder by higher mean value
+tmp_adonis_order <- tmp_data[,c("treatment2","similarity")] %>% 
+  dplyr::group_by(treatment2) %>% 
+  dplyr::summarise(mean = mean(similarity))
+tmp_adonis_order = left_join(tmp_adonis_pair,tmp_adonis_order,
+                             by=c("a"="treatment2"))
+
+# letters
+tmp = tmp_adonis_order$p.adjusted[order(tmp_adonis_order$mean,decreasing = T)]
+names(tmp) <- paste0(tmp_adonis_order$a[order(tmp_adonis_order$mean,decreasing = T)],
+                     "-",tmp_adonis_pair$b[order(tmp_adonis_order$mean,decreasing = T)])
+tmp[1:15]
+library(multcompView)
+tmp_letters <- multcompLetters(tmp,compare="<=",threshold=0.05,Letters=letters)
+tmp_letters[["Letters"]]
+
+fig_div[[paste0(tmp_sample_type,"_",tmp_index,"_adonis_letters")]] <- tmp_letters[["Letters"]]
+
+```
+
+As we only have three replicates for the suspensions and ten for the original soil, resulting in an unbalanced design, the adonis. pairwise function doesn't work properly
+https://www.researchgate.net/post/Permanova_using_Adonis2_with_unbalanced_design
+https://github.com/vegandevs/vegan/issues/344
+
+
+```{r PERMANOVA unbalanced}
+
+library(vegan)
+
+tmp_matrix = as.matrix(tmp_dist)
+str(tmp_matrix)
+
+# keep only 3 T0 samples
+tmp_samples = c(131,136,140,141:143,180:191)
+tmp_matrix <- tmp_matrix[rownames(tmp_matrix) %in% tmp_samples,
+                         colnames(tmp_matrix) %in% tmp_samples]
+
+# check samples and treatments
+tmp_ps1 = prune_samples(sample_names(tmp_ps) %in% tmp_samples,tmp_ps)
+tmp_ttt = tmp_ps1@sam_data$treatment
+tmp_ttt[1:15]
+rownames(tmp_matrix)[1:15]
+
+
+
+
+# adonis
+tmp_adonis = adonis(formula = tmp_matrix ~ tmp_ttt, permutations = 9999)
+tmp_adonis$aov.tab
+
+library(devtools)
+library(pairwiseAdonis)
+
+tmp_adonis_pair = pairwise.adonis(tmp_matrix, factors=tmp_ttt,p.adjust.m='BH')
+# subset pairs name
+tmp = unlist(strsplit(tmp_adonis_pair$pairs," vs "))
+tmp_adonis_pair[,"a"] <- tmp[seq(1,length(tmp),by=2)]
+tmp_adonis_pair[,"b"] <- tmp[seq(2,length(tmp),by=2)]
+
+# reorder by higher mean value
+tmp_adonis_order <- tmp_data[,c("treatment2","similarity")] %>% 
+  dplyr::group_by(treatment2) %>% 
+  dplyr::summarise(mean = mean(similarity))
+tmp_adonis_order = left_join(tmp_adonis_pair,tmp_adonis_order,
+                             by=c("a"="treatment2"))
+
+# letters
+tmp = tmp_adonis_order$p.adjusted[order(tmp_adonis_order$mean,decreasing = T)]
+names(tmp) <- paste0(tmp_adonis_order$a[order(tmp_adonis_order$mean,decreasing = T)],
+                     "-",tmp_adonis_pair$b[order(tmp_adonis_order$mean,decreasing = T)])
+tmp[1:15]
+library(multcompView)
+tmp_letters <- multcompLetters(tmp,compare="<=",threshold=0.05,Letters=letters)
+tmp_letters[["Letters"]]
+
+fig_div[[paste0(tmp_sample_type,"_",tmp_index,"_adonis_letters")]] <- tmp_letters[["Letters"]]
+
+
+```
+
+
+### plot
+
+```{r barplot similarity, width = 5.5,height = 6}
+
+library(ggplot2)
+
+# set limits
+tmp_ylim = c(0,1)
+tmp_ylim_stat = 0.95
+
+# set plot data
+tmp_plot_data = tibble("treatment"=tmp_data$treatment2,
+                       "value"=tmp_data$similarity)
+tmp_plot_data <- left_join(tmp_plot_data,Color_sets) # add color and order
+tmp_plot_stat = tibble("treatment"=names(tmp_letters[["Letters"]]),
+                       "stat_groups"=tmp_letters[["Letters"]])
+tmp_plot_stat[,"stat_y"] <- tmp_ylim_stat
+
+# plot
+p <- ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               #y = log10(value))) +
+                               y = value)) +
+  
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               linetype = 1,
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  labs(x="Treatment", y= "Similarity to control",
+       title=paste0(tmp_sample_type,"_",tmp_index,"_similarity"),
+       color = "#333333")+
+  coord_flip(ylim = tmp_ylim)+
+  #scale_y_log10()+
+  theme_bw()+
+  theme(title = element_text(face="bold", size=12),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=10), 
+        axis.text.x  = element_text(vjust=0.5, size=8,angle = 0),
+        axis.title.y = element_text(face="bold", size=10), 
+        axis.text.y  = element_text(vjust=0.5, size=8),
+        strip.text = element_text(face="bold", size=8),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  stat_summary(geom = "linerange", fun.data = mean_se, width=0.5,color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            #mapping = aes(label = stat_groups, y = stat_y*5, x=treatment),
+            mapping = aes(label = stat_groups, y = stat_y, x=treatment),
+            colour="#333333", size=8,inherit.aes = F, angle = 0,
+            position = position_nudge(x = 0))
+  
+p
+
+fig_div[[paste0(tmp_sample_type,"_",tmp_index,"_similarity")]] <- p
+
+
+
+```
+
+```{r barplot distance, width = 5.5,height = 6}
+
+library(ggplot2)
+
+# set limits
+tmp_ylim = c(0,0.25)
+tmp_ylim_stat = 0.23
+
+# set plot data
+tmp_plot_data = tibble("treatment"=tmp_data$treatment2,
+                       "value"=tmp_data$value)
+tmp_plot_data <- left_join(tmp_plot_data,Color_sets) # add color and order
+tmp_plot_stat = tibble("treatment"=names(tmp_letters[["Letters"]]),
+                       "stat_groups"=tmp_letters[["Letters"]])
+tmp_plot_stat[,"stat_y"] <- tmp_ylim_stat
+
+# plot
+p <- ggplot(tmp_plot_data, aes(x = reorder(treatment,desc(order)),
+                               #y = log10(value))) +
+                               y = value)) +
+  
+  stat_summary(geom = "bar", fun = mean, colour = "#333333",
+               linetype = 1,
+               fill = levels(reorder(tmp_plot_data$color,desc(tmp_plot_data$order))))+ 
+  labs(x="Treatment", y= "Distance to control",
+       title=paste0(tmp_sample_type,"_",tmp_index,"_distance"),
+       color = "#333333")+
+  coord_flip(ylim = tmp_ylim)+
+  #scale_y_log10()+
+  theme_bw()+
+  theme(title = element_text(face="bold", size=12),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=10), 
+        axis.text.x  = element_text(vjust=0.5, size=8,angle = 0),
+        axis.title.y = element_text(face="bold", size=10), 
+        axis.text.y  = element_text(vjust=0.5, size=8),
+        strip.text = element_text(face="bold", size=8),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  stat_summary(geom = "linerange", fun.data = mean_se, width=0.5,color = "#333333" )+
+  geom_text(data = tmp_plot_stat,
+            #mapping = aes(label = stat_groups, y = stat_y*5, x=treatment),
+            mapping = aes(label = stat_groups, y = stat_y, x=treatment),
+            colour="#333333", size=8,inherit.aes = F, angle = 0,
+            position = position_nudge(x = 0))
+  
+p
+
+fig_div[[paste0(tmp_sample_type,"_",tmp_index,"_distance")]] <- p
+
+
+
+```
+
+

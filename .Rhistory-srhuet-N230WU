@@ -1,0 +1,512 @@
+ggplot() +
+aes(x = taxa, y = count,fill = edge_sign) +
+geom_col() +
+scale_fill_manual(values = c("pos"="#FF3366","neg"="#3399FF")) +
+theme_light() +
+coord_flip() +
+geom_hline(yintercept = 0,color = "#333333") #+
+tmp_plot_data %>%
+ggplot() +
+aes(x = rev(taxa), y = count,fill = edge_sign) +
+geom_col() +
+scale_fill_manual(values = c("pos"="#FF3366","neg"="#3399FF")) +
+theme_light() +
+coord_flip() +
+geom_hline(yintercept = 0,color = "#333333") #+
+tmp_plot_data %>%
+ggplot() +
+aes(x = sort(taxa,decreasing = T), y = count,fill = edge_sign) +
+geom_col() +
+scale_fill_manual(values = c("pos"="#FF3366","neg"="#3399FF")) +
+theme_light() +
+coord_flip() +
+geom_hline(yintercept = 0,color = "#333333") #+
+tmp_plot_data %>%
+ggplot() +
+aes(x = taxa, y = count,fill = edge_sign) +
+geom_col() +
+scale_fill_manual(values = c("pos"="#FF3366","neg"="#3399FF")) +
+theme_light() +
+coord_flip() +
+geom_hline(yintercept = 0,color = "#333333") #+
+tmp_data = tmp_heatmap %>%
+left_join(.,tmp_rel_abund_in_susp) %>%
+left_join(.,taxtab)
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+rowwise() %>%
+filter(
+## taxo
+taxa %in% c("Alphaproteobacteria","Gammaproteobacteria")
+## detected in susp C
+& susp_C > 0
+## detected in at least one manipulated suspension
+& sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+## up in microcosms (in at least 1 community)
+& sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 1
+## not down in microcosms
+& sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+## in network
+& OTU %in% network_M0_nodes
+)
+length(unique(tmp$OTU))
+# select networks links between these OTUs ----
+tmp_data <- network_M0_edges %>%
+filter(
+source %in% tmp$OTU
+| target %in% tmp$OTU
+) %>%
+# select negative links only
+filter(value <0) %>%
+# add taxonomy
+rowwise() %>%
+mutate(
+taxa_source = taxtab$Order[taxtab$OTU == source],
+taxa_target = taxtab$Order[taxtab$OTU == target],
+taxa = paste0(sort(c(taxa_source,taxa_target)),collapse =  " - ")
+) %>% ungroup()
+tmp_plot_data <- tmp_data %>%
+mutate(
+edge_sign = case_when(
+value > 0 ~ "pos",
+value <0 ~ "neg"
+)
+) %>%
+aggregate(edge_name ~ taxa + edge_sign, function(x) length(unique(x))) %>%
+mutate(count = case_when(
+edge_sign == "pos" ~ edge_name,
+edge_sign == "neg" ~ - edge_name
+))
+tmp_plot_data %>%
+ggplot() +
+aes(x = taxa, y = count,fill = edge_sign) +
+geom_col() +
+scale_fill_manual(values = c("pos"="#FF3366","neg"="#3399FF")) +
+theme_light() +
+coord_flip() +
+geom_hline(yintercept = 0,color = "#333333") #+
+tmp_plot_data <- tmp_data %>%
+mutate(
+edge_sign = case_when(
+value > 0 ~ "pos",
+value <0 ~ "neg"
+)
+) %>%
+aggregate(edge_name ~ taxa + edge_sign, function(x) length(unique(x)))
+tmp_plot_data %>%
+ggplot() +
+aes(x = taxa, y = count) +
+geom_col() +
+theme_light() +
+coord_flip() +
+geom_hline(yintercept = 0,color = "#333333") #+
+tmp_plot_data %>%
+ggplot() +
+aes(x = taxa, y = edge_name) +
+geom_col() +
+theme_light() +
+coord_flip() +
+geom_hline(yintercept = 0,color = "#333333") #+
+tmp_data = tmp_heatmap %>%
+left_join(.,tmp_rel_abund_in_susp) %>%
+left_join(.,taxtab)
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+rowwise() %>%
+filter(
+## taxo
+taxa %in% c("Alphaproteobacteria")
+## detected in susp C
+& susp_C > 0
+## detected in at least one manipulated suspension
+& sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+## up in microcosms (in at least two communities)
+& sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 2
+## not down in microcosms
+& sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+## in network
+& OTU %in% network_M0_nodes
+)
+# select networks links between these OTUs
+tmp_network = network_M0_edges %>%
+filter(
+source %in% tmp$OTU
+| target %in% tmp$OTU
+) %>%
+# select negative links only
+filter(value <0) %>%
+# add taxonomy
+left_join(.,taxtab %>% select(OTU,taxa),by=c("source"="OTU")) %>%
+left_join(.,taxtab %>% select(OTU,taxa),by=c("target"="OTU")) %>%
+# rename var for chord function
+rename(rowname= taxa.x,
+key = taxa.y)
+# select only variables needed for the chord diagram
+tmp_chord <- tmp_network %>%
+select(rowname,key,value) %>%
+arrange(.,rowname)
+View(tmp_network)
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+# ALPHA & GAMMA ----
+tmp_data = tmp_heatmap %>%
+left_join(.,tmp_rel_abund_in_susp) %>%
+left_join(.,taxtab)
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+rowwise() %>%
+filter(
+## taxo
+taxa %in% c("Alphaproteobacteria","Gammaproteobacteria")
+## detected in susp C
+& susp_C > 0
+## detected in at least one manipulated suspension
+& sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+## up in microcosms (in at least 1 community)
+& sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 1
+## not down in microcosms
+& sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+## in network
+& OTU %in% network_M0_nodes
+)
+## 10 OTUs
+# select networks links between these OTUs ----
+tmp_data <- network_M0_edges %>%
+filter(
+source %in% tmp$OTU
+| target %in% tmp$OTU
+) %>%
+# select negative links only
+filter(value <0) %>%
+# add taxonomy
+rowwise() %>%
+mutate(
+taxa_source = taxtab$taxa[taxtab$OTU == source],
+taxa_target = taxtab$taxa[taxtab$OTU == target],
+taxa = paste0(sort(c(taxa_source,taxa_target)),collapse =  " - ")
+) %>% ungroup()
+# barplot ----
+tmp_plot_data <- tmp_data %>%
+mutate(
+edge_sign = case_when(
+value > 0 ~ "pos",
+value <0 ~ "neg"
+)
+) %>%
+aggregate(edge_name ~ taxa + edge_sign, function(x) length(unique(x)))
+tmp_plot_data %>%
+ggplot() +
+aes(x = taxa, y = edge_name) +
+geom_col() +
+theme_light() +
+coord_flip() +
+geom_hline(yintercept = 0,color = "#333333") #+
+View(ps_16S_fltr@tax_table)
+tmp_network_M0 = network_M0_edges %>%
+mutate(
+# add edge color & style
+color = case_when(
+value > 0 ~ "#3399FF",
+.default = "#FF3366"),
+style = "normal",
+# edge absolute values
+value = abs(value)
+)
+knitr::opts_chunk$set(echo = TRUE)
+library(phyloseq)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(emmeans)
+library(gdata)
+# load work space data
+load("Data/R_data.RData")
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+tmp_network_M0 = network_M0_edges %>%
+mutate(
+# add edge color & style
+color = case_when(
+value > 0 ~ "#3399FF",
+.default = "#FF3366"),
+style = "normal",
+# edge absolute values
+value = abs(value)
+)
+# extract data
+write.table(tmp_network_M0,"itol/tmp_itol_connection.txt",quote = F,sep = ",",row.names = F)
+tmp_network_M0 = network_M0_edges %>%
+mutate(
+# add edge color & style
+color = case_when(
+value > 0 ~ "#3399FF",
+.default = "#FF3366"),
+style = "normal",
+# edge absolute values
+value = abs(value)
+) %>%
+select(source,target,value,color,style)
+# extract data
+write.table(tmp_network_M0,"itol/tmp_itol_connection.txt",quote = F,sep = ",",row.names = F)
+unique(taxtab$taxa)
+library(phyloseq)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(emmeans)
+library(gdata)
+tmp = tmp_heatmap %>% group_by(OTU) %>% mutate(New = across(where(is.numeric), ~ .x > 0))
+View(tmp)
+across(tmp$MAC_a1d1, ~ .x > 0)
+tmp = tmp_heatmap %>% group_by(OTU) %>% mutate(New = rowSums(across(where(is.numeric), ~ .x > 0)))
+# which OTUs are significative in differential abundance analysis
+tmp = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))
+# which OTUs are significative in differential abundance analysis
+tmp = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+# add taxa
+rowwise() %>%
+mutate(
+link_taxa = paste(sort(c(taxtab$taxa[taxtab$OTU == source],
+taxtab$taxa[taxtab$OTU == target])),collapse = " - "))
+# in how much treatment OTUs are significantly differentially abundant
+tmp = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+# add taxa
+rowwise() %>%
+mutate(
+link_taxa = paste(sort(c(taxtab$taxa[taxtab$OTU == source],
+taxtab$taxa[taxtab$OTU == target])),collapse = " - "))
+# in how much treatment OTUs are significantly differentially abundant
+tmp = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+# add taxa
+rowwise() %>%
+mutate(taxa = taxtab$taxa[taxtab$OTU == OTU])
+tmp = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+# add taxa
+rowwise() %>%
+mutate(taxa = taxtab$taxa[taxtab$OTU == OTU]) %>%
+# which OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") are significantly differentially abundant in >= 3 treatment
+filter(
+taxa %in% c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes")
+)
+tmp = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+# add taxa
+rowwise() %>%
+mutate(taxa = taxtab$taxa[taxtab$OTU == OTU]) %>%
+# which OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") are significantly differentially abundant in >= 3 treatment
+filter(
+taxa %in% c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes")
+) %>%
+filter(
+up >= 12/3 | down >= 12/3
+)
+View(tmp)
+# network
+tmp_network_M0 = network_M0_edges %>%
+mutate(
+# add edge color & style
+color = case_when(
+value > 0 ~ "#3399FF",
+.default = "#FF3366"),
+style = "normal",
+# edge absolute values
+value = abs(value)
+) %>%
+select(source,target,value,color,style) %>%
+# filter OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") that are significantly differentially abundant in >= 3 treatments
+filter(source %in% tmp$OTU | target %in% tmp$OTU)
+# network
+tmp_network_M0 = network_M0_edges %>%
+mutate(
+# add edge color & style
+color = case_when(
+value > 0 ~ "#3399FF",
+.default = "#FF3366"),
+style = "normal",
+# edge absolute values
+value = abs(value)
+) %>%
+select(source,target,value,color,style)
+# network
+tmp_network_M0 = network_M0_edges %>%
+mutate(
+# add edge color & style
+color = case_when(
+value > 0 ~ "#3399FF",
+.default = "#FF3366"),
+style = "normal",
+# edge absolute values
+value = abs(value)
+) %>%
+select(source,target,value,color,style) %>%
+# filter OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") that are significantly differentially abundant in >= 3 treatments
+filter(source %in% tmp$OTU | target %in% tmp$OTU)
+# network
+tmp_network_M0 = network_M0_edges %>%
+mutate(
+# add edge color & style
+color = case_when(
+value > 0 ~ "#3399FF",
+.default = "#FF3366"),
+style = "normal",
+# edge absolute values
+value = abs(value)
+) %>%
+select(source,target,value,color,style) %>%
+# filter OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") that are significantly differentially abundant in >= 3 treatments
+filter(source %in% tmp$OTU & target %in% tmp$OTU)
+# extract data
+write.table(tmp_network_M0,"itol/tmp_itol_connection.txt",quote = F,sep = ",",row.names = F)
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+tmp_ps <- subset_taxa(tmp_ps,taxa_names(tmp_ps) %in% tmp$OTU)
+tmp_ps = ps_16S_fltr
+tmp_ps <- subset_taxa(tmp_ps,taxa_names(tmp_ps) %in% tmp$OTU)
+# in how much treatment OTUs are significantly differentially abundant
+tmp = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+# add taxa
+rowwise() %>%
+mutate(taxa = taxtab$taxa[taxtab$OTU == OTU]) %>%
+# which OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") are significantly differentially abundant in >= 3 treatment
+filter(
+taxa %in% c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes")
+) %>%
+filter(
+up >= 12/3 | down >= 12/3
+)
+knitr::opts_chunk$set(echo = TRUE)
+library(phyloseq)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(emmeans)
+library(gdata)
+# load work space data
+load("Data/R_data.RData")
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+# select data
+tmp_data = stat_otu_emmeans_fltr %>% # remove OTUs for which model didnt work
+filter(g1 == "C") %>%
+# create heatmap column
+mutate(heatmap = case_when(
+# inverse to have ttt-C
+pval_adjust <= 0.05 ~ - estimate,
+.default = 0),
+signif_comp = g2
+) %>%
+# select data
+select(OTU,signif_comp,heatmap) %>%
+# set values between -6 and 6
+mutate(
+heatmap = case_when(
+heatmap < -6 ~ -6,
+heatmap > 6 ~ 6,
+.default = heatmap
+)
+)
+# add missing otu
+tmp_missing_OTUs = expand.grid(
+setdiff(taxa_names(ps_16S_fltr),unique(tmp_data$OTU)),
+unique(tmp_data$signif_comp),stringsAsFactors = F) %>%
+rename(OTU = Var1,signif_comp = Var2) %>%
+mutate(heatmap = 0)
+tmp_data <- tmp_data %>%
+full_join(.,tmp_missing_OTUs)
+# wrangle data
+tmp_heatmap <- pivot_wider(tmp_data,names_from = signif_comp, values_from = heatmap)
+# extract data
+#write.csv(tmp_heatmap,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+# COLOR_MIN,#3399FF / COLOR_MAX,#FF3366
+# in how much treatment OTUs are significantly differentially abundant
+tmp = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+# add taxa
+rowwise() %>%
+mutate(taxa = taxtab$taxa[taxtab$OTU == OTU]) %>%
+# which OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") are significantly differentially abundant in >= 3 treatment
+filter(
+taxa %in% c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes")
+) %>%
+filter(
+up >= 12/3 | down >= 12/3
+)
+library(ape)
+tmp_ps = ps_16S_fltr
+tmp_ps <- subset_taxa(tmp_ps,taxa_names(tmp_ps) %in% tmp$OTU)
+tmp_tree = tmp_ps@phy_tree
+write.tree(tmp_tree,"tmp_itol_tree.tre")
+write.tree(tmp_tree,"itol\tmp_itol_tree.tre")
+write.tree(tmp_tree,"itol/tmp_itol_tree.tre")
+# in how much treatment OTUs are significantly differentially abundant
+tmp_itol_subset = tmp_heatmap %>%
+group_by(OTU) %>%
+mutate(
+up = rowSums(across(where(is.numeric), ~ .x > 0)),
+down = rowSums(across(where(is.numeric), ~ .x < 0)))%>%
+# add taxa
+rowwise() %>%
+mutate(taxa = taxtab$taxa[taxtab$OTU == OTU]) %>%
+# which OTUs among c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes") are significantly differentially abundant in >= 3 treatment
+filter(
+taxa %in% c("Alphaproteobacteria","Gammaproteobacteria","Firmicutes")
+) %>%
+filter(
+up >= 12/3 | down >= 12/3
+)

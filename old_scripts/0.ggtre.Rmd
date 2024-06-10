@@ -1,0 +1,189 @@
+---
+title: "0.ggtre"
+author: "Sarah HUET"
+date: '2023-02-27'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(ggplot2)
+library(tidyr)
+library(ggtree)
+library(ggtreeExtra)
+library(ape)
+
+library(ggstar)
+library(MicrobiotaProcess)
+library(ggnewscale)
+library(grid)
+
+library(tidytree)
+library(ggnewscale)
+library(patchwork)
+
+# load data
+load("E:/Research/Thesis/EMFEED/BISCAL_xp2_coal/R_xp2_coal/.RData")
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+
+```
+
+https://yulab-smu.top/treedata-book/
+
+https://academic.oup.com/mbe/article/38/9/4039/6294410?login=false
+
+# test
+
+see p. 27
+
+https://oup.silverchair-cdn.com/oup/backfile/Content_public/Journal/mbe/38/9/10.1093_molbev_msab166/2/msab166_supplementary_data.pdf?Expires=1680112048&Signature=C4ZpAW3p9eM8IXA9IJhIvB-U17s1g7yuBAt~Mpo5d6Koqk87~IDx4eZxw026uP2lymBgAowykOk5MAsrqur3FKm-HjSCjGc2nfb5msgv9CU~81BIm8Ux1FL9lq4aPmbgAQHbijIMoqUbVu6Wsnvc7ChFt707MZGXJF-M8QrAB38x3Wpe9yOrUAZBqE3qEdfqRZl4UFR2GoIumkauomM7puR9v2NBR5Bt2tytkJES2Hw9Co-pB2f4024du9p~WLeAisvtLV2LW8or9YzHLnIEyBkkbBD6d55cXuR~~OS3tTNKK5btdnJIHgSqvVpKY-XnQeQ320WNC4FXit-gc0DkBg__&Key-Pair-Id=APKAIE5G5CRDK6RD3PGA
+
+
+
+# ggtree
+
+```{r}
+
+tmp_ps = ps_16S_fltr
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+
+p <- ggtree(tmp_ps, layout="inward_circular", size=0.5, xlim=c(2,NA))
+p
+
+```
+
+```{r taxo}
+
+p <- p %<+% taxtab
+
+p1 <- p +
+      geom_tippoint(
+          mapping=aes(color=taxa),
+          size=2
+      ) +
+      scale_color_manual(values=unique(taxtab$color[order(taxtab$color,taxtab$order)]))
+
+p1
+```
+
+
+```{r network}
+
+tmp_ps = ps_16S_fltr
+tmp_edges_otu = PLN_model.StARS_xp2_edges
+
+# edge type
+tmp_edges_otu[,"edge_type"] <- ifelse(tmp_edges_otu$value > 0, "pos","neg")
+tmp_edges_otu <- tmp_edges_otu[,c("source","target","edge_type")]
+
+# tree
+p2 <- p1 +
+      new_scale_color() +
+      geom_taxalink(
+          data=tmp_edges_otu,
+          mapping=aes(
+                      taxa1=source, 
+                      taxa2=target, 
+                      color=edge_type
+                  ),
+          #taxa1 = tmp_edges_otu$source,
+          #taxa2 = tmp_edges_otu$target,
+          alpha=0.6,
+          offset=0.1,
+          size=0.15,
+          ncp=10,
+          hratio=1,
+          arrow=grid::arrow(length = unit(0.005, "npc"))
+      ) +
+      scale_colour_manual(values=c("#3690C0", "#009E73"),
+                          guide=guide_legend(
+                                     keywidth=0.8, keyheight=0.5,
+                                     order=1, override.aes=list(alpha=1, size=0.5)
+                          )
+      )
+p2
+
+```
+
+# d3
+
+```{r}
+
+tmp_tree = ps_16S_fltr@phy_tree
+
+
+```
+
+```{r}
+
+library(ape)
+library(jsonlite)
+
+# Load the phylogenetic tree object
+tmp_tree = ps_16S_fltr@phy_tree
+
+# Convert the phylogenetic tree to a list
+tmp_list <- as.list(tmp_tree)
+
+# Convert the list to a JSON string
+tmp_json <- toJSON(tmp_list, pretty = T,auto_unbox = TRUE)
+
+# Use d3 to visualize the phylogenetic tree
+htmlwidgets::createWidget(
+  name = "d3_phylo_tree",
+  list(
+    tree_json = tmp_tree_json
+  ),
+  package = "d3_phylo_tree"
+)
+
+```
+
+```{r}
+library(d3)
+library(ape)
+
+# Load a phylogenetic tree from an example dataset
+data(bird.families)
+tmp_tree <- bird.families
+
+# Convert the tree to a JSON format that can be used by d3.phylogram
+tree_json <- toJSON(list(root_node = list(edge_length = 0), children = list(tree$node)))
+tree_json <- gsub("\"edge\"", "\"length\"", tree_json)
+
+# Define the CSS style for the visualization
+css <- "
+.node circle {
+  fill: #fff;
+  stroke: steelblue;
+  stroke-width: 1.5px;
+}
+
+.node text { font: 10px sans-serif; }
+
+.link {
+  fill: none;
+  stroke: #ccc;
+  stroke-width: 1.5px;
+}"
+
+# Define the d3.phylogram chart and bind the tree data
+d3_phylo <- d3$phylogram()$width(800)$height(600)$padding(20)
+d3_phylo$tree(jsonlite::fromJSON(tree_json))
+d3_phylo$css(css)
+
+# Print the chart
+cat(d3_phylo)
+
+```
+
+
+
+
+

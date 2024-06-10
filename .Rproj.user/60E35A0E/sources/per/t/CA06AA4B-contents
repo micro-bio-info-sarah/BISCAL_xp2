@@ -1,0 +1,971 @@
+---
+title: "6_PLN_models"
+author: "Sarah HUET"
+date: "2021 M03 10"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(PLNmodels)
+library(tibble)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+library(gdata)
+
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+
+# Network without covar
+
+## network inference
+
+```{r model}
+
+tmp_ps = ps_16S_fltr
+
+# calculate offset
+tmp_otu_table = t(tmp_ps@otu_table@.Data)
+tmp_Offset <- compute_offset(tmp_otu_table, offset = "TSS")
+
+# covariable dataframe
+tmp_covariables = data.frame(tmp_ps@sam_data)
+tmp_covariables = tmp_covariables[,c("sample","treatment")]
+
+# prepare dataframe
+tmp_df <- prepare_data(counts = tmp_otu_table,covariates =  tmp_covariables)
+tmp_df$Offset <- tmp_Offset
+# calcule network
+tmp_network <- PLNnetwork(Abundance ~ 1 + offset(log(Offset)), data = tmp_df)
+
+# obtain best model
+tmp_model.StARS <- tmp_network$getBestModel("StARS")
+# save model
+#save(tmp_network, file="PLN_network_xp2_coal .RData")
+#PLN_model_StARS_xp2_coal = tmp_model.StARS
+#save(PLN_model_StARS_xp2_coal, file="PLN_model_StARS_xp2_coal.RData")
+
+```
+
+
+```{r extract network}
+
+tmp_model.StARS = PLN_model.StARS_xp2
+
+# graph adjacency matrix (value = partial correlation value)
+tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+# remove redundant data from the matrix
+diag(tmp_adjacency.StARS)=0
+tmp_adj=tmp_adjacency.StARS
+tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+# define a partial correlation threshold
+tmp_thrld = 0.0
+# extract edges above a threshold and involved nodes
+tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+tmp_edges_val = tmp_adj[tmp_edges]
+tmp_edges_otu <- tibble("source"=rownames(tmp_adj)[tmp_edges[,1]],
+                        "target"=colnames(tmp_adj)[tmp_edges[,2]],
+                        "value"=tmp_edges_val)
+
+# name edges
+tmp_edges_otu[,"edge_name"] <- paste0(apply(tmp_edges_otu[,c("source","target")],1,sort)[1,],
+                                      "__",apply(tmp_edges_otu[,c("source","target")],1,sort)[2,])
+
+# extract involved nodes
+tmp_nodes <- unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+
+# rename df
+gdata::mv("tmp_edges_otu",paste0("PLN_model.StARS_xp2_edges"))
+gdata::mv("tmp_nodes",paste0("PLN_model.StARS_xp2_nodes"))
+
+# extract network for cytoscape
+#write.csv(tmp_edges_otu,file = paste0("cytoscape_PLN_net",tmp_thrld,".csv"),quote = F,row.names = F)
+
+```
+
+## itol
+
+```{r itol connections}
+
+tmp_itol = PLN_model.StARS_xp2_edges[,c("source","target","value")]
+
+# add edge color & style
+tmp_itol[,"color"] <- ifelse(tmp_itol$value > 0, "#3399FF","#FF3366")
+tmp_itol[,"style"] <- rep("normal",nrow(tmp_itol))
+# edge absolute values
+tmp_itol$value <- abs(tmp_itol$value)
+
+# extract data
+write.csv(tmp_itol,paste0("iTOL/tmp_itol_connection.csv"),row.names = F,quote = F)
+
+
+```
+
+## module detection
+
+```{r}
+
+library(igraph)
+#Community detection based on edge betweenness (Newman-Girvan)
+#High-betweenness edges are removed sequentially (recalculating at each step) and the best partitioning of the network is selected.
+tmp_net <- graph_from_data_frame(d=tmp_edges_otu, vertices=tmp_nodes, directed=FALSE)
+tmp_ceb <- cluster_edge_betweenness(tmp_net)
+#plot(tmp_ceb,tmp_net)
+
+tmp_ceb_groups <- split(as.character(tmp_nodes), factor(tmp_ceb$membership))
+#tmp_ceb_groups <- tmp_ceb_groups[sapply(tmp_ceb_groups, length) > 20]
+
+tmp_ceb_df = tibble("OTU" = taxa_names(ps_16S_fltr),
+                 "CEB" = NA)
+
+for (i in 1:length(tmp_ceb_groups)) {
+  tmp_ceb_groups_otu = unlist(tmp_ceb_groups[i])
+  for (j in tmp_ceb_groups_otu) {
+    tmp_ceb_df$CEB[tmp_ceb_df$OTU == j] <- paste0("Module ",i)
+  }
+}
+
+tmp_ceb_df[is.na(tmp_ceb_df)] <- ""
+
+tmp_ceb_df[,"position"] <- rep(-1,nrow(tmp_ceb_df))
+tmp_ceb_df[,"color"] <- rep("#999999",nrow(tmp_ceb_df))
+tmp_ceb_df[,"style"] <- rep("bold",nrow(tmp_ceb_df))
+tmp_ceb_df[,"size"] <- rep(1,nrow(tmp_ceb_df))
+tmp_ceb_df[,"rotation"] <- rep(0,nrow(tmp_ceb_df))
+
+#write.csv(tmp_ceb_df,"tmp.csv",row.names = F,quote = F)
+
+```
+
+## cytoscape network metadata 
+
+```{r extract taxonomy for cytoscape}
+
+tmp_ps = ps_16S_fltr
+
+# extract taxo table
+tmp_taxtab = tibble("OTU"=taxa_names(tmp_ps),
+                    "Kingdom"=str_remove(tmp_ps@tax_table@.Data[,"Kingdom"],"[kdpcofgs0123456789]__"),
+                    "Phylum"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[kdpcofgs0123456789]__"),
+                    "class"=str_remove(tmp_ps@tax_table@.Data[,"Class"],"[kdpcofgs0123456789]__"),
+                    "Order"=str_remove(tmp_ps@tax_table@.Data[,"Order"],"[kdpcofgs0123456789]__"),
+                    "Family"=str_remove(tmp_ps@tax_table@.Data[,"Family"],"[kdpcofgs0123456789]__"),
+                    "Genus"=str_remove(tmp_ps@tax_table@.Data[,"Genus"],"[kdpcofgs0123456789]__"),
+                    "Species"=str_remove(tmp_ps@tax_table@.Data[,"Species"],"[kdpcofgs0123456789]__"),
+                    "taxa"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[kdpcofgs0123456789]__"),
+                    "Abundance" = as.numeric(taxa_sums(tmp_ps)))
+
+
+# wrangle taxo
+## change unclassified by "Unknown"
+tmp_taxtab[is.na(tmp_taxtab)] <- "Unknwon"
+## put class for proteo
+tmp_taxtab$taxa[tmp_taxtab$Phylum == "Proteobacteria"] <- tmp_taxtab$class[tmp_taxtab$Phylum == "Proteobacteria"]
+## select most abundant taxa
+tmp_most_abund = tmp_taxtab %>% group_by(taxa) %>% summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$taxa[order(tmp_most_abund$sum, decreasing = TRUE)[1:14]]
+tmp_most_abund
+##change rare taxa by "Others"
+tmp_taxtab$taxa[!(tmp_taxtab$taxa %in% c(tmp_most_abund,"Unknown"))] <- "Others"
+
+write.csv(tmp_taxtab,file = "cytoscape_PLN_metadata_taxo.csv",
+          quote = F,row.names = F)
+
+```
+
+```{r extract stat q1}
+
+tmp_data = tibble("OTU"=stat_q1_otu$OTU,
+                  "variable"=stat_q1_otu$var,
+                  "pval_signif"=stat_q1_otu$pval_signif)
+
+tmp_data <- pivot_wider(tmp_data,names_from = "variable",values_from = "pval_signif")
+
+
+
+# extract network for cytoscape
+write.csv(tmp_data,file = paste0("cytoscape_PLN_net_metadata.csv"),quote = F,row.names = F)
+
+```
+
+```{r edge shape for network WIP}
+
+##### NEGATIVE INTERACTIONS -----
+
+# select edges with negative value
+tmp_negcor_df = tmp_edges_otu[tmp_edges_otu$value < 0,]
+tmp_negcor_df[,"name"] <- paste0("edge_neg_",rank(tmp_negcor_df$value))
+# combine edges with node taxo
+for (i in 1:nrow(tmp_negcor_df)) {
+  tmp_negcor_df[i,"Source_Class"] <- tmp_ps@tax_table[tmp_negcor_df$source[i],"Class"]
+  tmp_negcor_df[i,"Target_Class"] <- tmp_ps@tax_table[tmp_negcor_df$target[i],"Class"]
+}
+
+
+
+
+
+
+
+# define shape column 
+tmp_negcor_df[,"edge_shape"] <- "dash"
+
+# loop to check in treatments if shape change
+for (i in 1:nrow(tmp_negcor_df)) {
+  
+  tmp_heatmap = stat_q2_otu_comparison_sum[stat_q2_otu_comparison_sum$g1 =="C",]
+  tmp_df = tibble("treatment"=  colnames(tmp_heatmap)[-1],
+                  "source_C.T"= t(tmp_heatmap[tmp_heatmap$OTU == tmp_negcor_df$source[i],-1]),
+                  "target_C.T"= t(tmp_heatmap[tmp_heatmap$OTU == tmp_negcor_df$target[i],-1]))
+  
+  tmp_df[is.na(tmp_df)] <- 0
+  
+  # check if source & target have opposite behavior in C.T
+  tmp_df[,"negcor_C.T"] <- 0
+  tmp_df[tmp_df$source_C.T >0 & tmp_df$target_C.T <0,"negcor_C.T"] <- 1
+  tmp_df[tmp_df$source_C.T <0 & tmp_df$target_C.T >0,"negcor_C.T"] <- 1
+  
+  # define link shape in negcor_df
+  tmp_negcor_df[i,"edge_shape"] <- ifelse(nrow(tmp_df[tmp_df$negcor_C.T >0,]) >0,"solid","dash")
+  
+  
+} 
+
+##### POSITIVE INTERACTIONS -----
+
+# select edges with positive value
+tmp_poscor_df = as_tibble(tmp_edges_otu[tmp_edges_otu[,3] > 0,])
+tmp_poscor_df$value <- as.numeric(tmp_poscor_df$value)
+tmp_poscor_df[,"name"] <- paste0("edge_",1:nrow(tmp_poscor_df))
+# combine edges with node taxo
+for (i in 1:nrow(tmp_poscor_df)) {
+  tmp_poscor_df[i,"Source_Class"] <- tmp_ps@tax_table[tmp_poscor_df$source[i],"Class"]
+  tmp_poscor_df[i,"Target_Class"] <- tmp_ps@tax_table[tmp_poscor_df$target[i],"Class"]
+}
+# define shape column 
+tmp_poscor_df[,"edge_shape"] <- "dash"
+
+# loop to check in treatments if shape change
+for (i in 1:nrow(tmp_poscor_df)) {
+  
+  tmp_heatmap = glmPLN.effects.xp1
+  tmp_df_C.T = tibble("ttt"=  colnames(tmp_heatmap)[-1],
+                      "source_C.T"= t(tmp_heatmap[tmp_heatmap$OTU == tmp_poscor_df$source[i],-1]),
+                      "target_C.T"= t(tmp_heatmap[tmp_heatmap$OTU == tmp_poscor_df$target[i],-1]))
+  
+  tmp_df[is.na(tmp_df)] <- 0
+  
+  # check if source & target have same behavior in C.T
+  tmp_df[,"poscor_C.T"] <- 0
+  tmp_df[tmp_df$source_C.T >0 & tmp_df$target_C.T >0,"poscor_C.T"] <- 1
+  tmp_df[tmp_df$source_C.T <0 & tmp_df$target_C.T <0,"poscor_C.T"] <- 1
+  
+  # define link shape in poscor_df
+  ## solid
+  if (nrow(tmp_df[tmp_df$poscor_C.T >0,]) >0) {
+    tmp_poscor_df[i,"edge_shape"] <- "solid"
+  }
+  
+} 
+
+##### COMBINE NEG AND POS COR -----
+tmp_net_edge_shape = rbind(tmp_negcor_df[,c("source","target","value","name",
+                                            "Source_Class","Target_Class","edge_shape")],
+                           tmp_poscor_df[,c("source","target","value","name",
+                                            "Source_Class","Target_Class","edge_shape")])
+
+write.csv(tmp_net_edge_shape,paste0("Projet/PLN_net_edge_shape_",tmp_barcode,tmp_step,".csv"),row.names = F,quote = F)
+
+```
+
+
+
+# networks for each coalescence factor
+
+## network inference
+
+See https://mia-paris.pages.mia.inra.fr/formation_abondance_reseau/tutoriels/PLN/mollusk.html#65
+
+```{r model}
+
+tmp_ps = ps_16S_fltr
+
+tmp_factor_list = c("broth","incub","density" )
+
+for (tmp_factor in tmp_factor_list) {
+  
+   # calculate offset
+  tmp_otu_table = t(tmp_ps@otu_table@.Data)
+  tmp_Offset <- compute_offset(tmp_otu_table, offset = "TSS")
+  # covariable dataframe
+  tmp_covariables = data.frame(tmp_ps@sam_data)
+  tmp_covariables = tmp_covariables[,c("sample","treatment",tmp_factor)]
+  # prepare dataframe
+  tmp_df <- prepare_data(counts = tmp_otu_table,covariates =  tmp_covariables)
+  tmp_df$Offset <- tmp_Offset
+  # calcule network
+  tmp_network <- PLNnetwork(Abundance ~ 0+tmp_df[,tmp_factor] + offset(log(Offset)), data = tmp_df)
+  # obtain best model
+  tmp_model.StARS <- tmp_network$getBestModel("StARS")
+  # rename model
+  gdata::mv("tmp_model.StARS",paste0("PLN_model.StARS_",tmp_factor))
+
+}
+
+
+# save models
+#save(list = names(.GlobalEnv)[grep("PLN_model",names(.GlobalEnv))],file="RData_network_with_covar.RData")
+
+```
+
+```{r extract network}
+
+
+tmp_factor_list = c("broth","incub","density" )
+
+for (tmp_factor in tmp_factor_list) {
+  
+  # rename model
+  gdata::mv(paste0("PLN_model.StARS_",tmp_factor),"tmp_model.StARS")
+  
+  # graph adjacency matrix (value = partial correlation value)
+  tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+  # remove redundant data from the matrix
+  diag(tmp_adjacency.StARS)=0
+  tmp_adj=tmp_adjacency.StARS
+  tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+  # define a partial correlation threshold
+  tmp_thrld = 0.0
+  # extract edges above a threshold and involved nodes
+  tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+  tmp_edges_val = tmp_adj[tmp_edges]
+  tmp_edges_otu <- tibble("source"=rownames(tmp_adj)[tmp_edges[,1]],
+                          "target"=colnames(tmp_adj)[tmp_edges[,2]],
+                          "value"=tmp_edges_val)
+  # name edges
+  tmp_edges_otu[,"edge_name"] <- paste0(apply(tmp_edges_otu[,c("source","target")],1,sort)[1,],
+                                        "__",apply(tmp_edges_otu[,c("source","target")],1,sort)[2,])
+
+  # extract involved nodes
+  tmp_nodes <- unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+  
+  # rename model
+  gdata::mv("tmp_model.StARS",paste0("PLN_model.StARS_",tmp_factor))
+  
+  # rename df
+  gdata::mv("tmp_edges_otu",paste0("PLN_model.StARS_",tmp_factor,"_edges"))
+  gdata::mv("tmp_nodes",paste0("PLN_model.StARS_",tmp_factor,"_nodes"))
+
+}
+
+
+# extract network for cytoscape
+#write.csv(tmp_edges_otu,file = paste0("cytoscape_PLN_net",tmp_thrld,".csv"),quote = F,row.names = F)
+
+```
+
+## itol network
+
+```{r itol connections}
+
+tmp_factor_list = c("broth","incub","density" )
+
+for (tmp_factor in tmp_factor_list) {
+  
+  # rename df
+  gdata::mv(paste0("PLN_model.StARS_",tmp_factor,"_edges"),"tmp_edges_otu")
+  tmp_itol = tmp_edges_otu
+  gdata::mv("tmp_edges_otu",paste0("PLN_model.StARS_",tmp_factor,"_edges"))
+  
+  # add edge color & style
+  tmp_itol[,"color"] <- ifelse(tmp_itol$value > 0, "#3399FF","#FF3366")
+  tmp_itol[,"style"] <- rep("normal",nrow(tmp_itol))
+  # edge absolute values
+  tmp_itol$value <- abs(tmp_itol$value)
+  
+  # write csv
+  write.csv(tmp_itol,paste0("iTOL/tmp_itol_connection_",tmp_factor,".csv"),row.names = F,quote = F)
+
+}
+
+```
+
+## compare networks
+
+```{r compare edges}
+
+tmp_factor_list = c("xp2","broth","incub","density" )
+
+tmp_loop_df = tibble("factor" = tmp_factor_list)
+
+# loop to calculate edges in common
+
+for (tmp_factor1 in tmp_factor_list) {
+  for (tmp_factor2 in tmp_factor_list) {
+    
+    # rename df1
+    gdata::mv(paste0("PLN_model.StARS_",tmp_factor1,"_edges"),"tmp_edges_otu")
+    tmp1 = tmp_edges_otu[,c(1:2)]
+    gdata::mv("tmp_edges_otu",paste0("PLN_model.StARS_",tmp_factor1,"_edges"))
+  
+    # rename df2
+    gdata::mv(paste0("PLN_model.StARS_",tmp_factor2,"_edges"),"tmp_edges_otu")
+    tmp2 = tmp_edges_otu[,c(1:2)]
+    gdata::mv("tmp_edges_otu",paste0("PLN_model.StARS_",tmp_factor2,"_edges"))
+    
+    # compare df1 & df2
+    tmp = dplyr::intersect(tmp1,tmp2)
+    
+    # extract data in df
+    tmp_loop_df[tmp_loop_df$factor == tmp_factor1,tmp_factor1] <- nrow(tmp1)
+    tmp_loop_df[tmp_loop_df$factor == tmp_factor2,tmp_factor2] <- nrow(tmp2)
+    tmp_loop_df[tmp_loop_df$factor == tmp_factor1,tmp_factor2] <- nrow(tmp)
+    
+  }
+}
+
+
+```
+
+```{r upset - edges}
+
+# Create a list
+tmp_upset <- list(
+  all = c(PLN_model.StARS_xp2_edges$edge_name),
+  div = c(PLN_model.StARS_incub_edges$edge_name),
+  compo = c(PLN_model.StARS_broth_edges$edge_name),
+  dens = c(PLN_model.StARS_density_edges$edge_name)
+  )
+
+# Create an UpSet plot
+upset(fromList(tmp_upset),
+      sets = rev(c("all","div","compo","dens")),keep.order = TRUE, # order sets
+      order.by = "degree",decreasing = F,#group.by = "sets",
+      empty.intersections = "on")
+
+```
+
+### Venn diagrams
+
+```{r Venn Diagram edges}
+
+library(ggVennDiagram)
+
+tmp_venn <- list("all"=PLN_model.StARS_xp2_edges$edge_name
+                 #,"div"=PLN_model.StARS_incub_edges$edge_name
+                 #,"compo"=PLN_model.StARS_broth_edges$edge_name
+                 ,"dens"=PLN_model.StARS_density_edges$edge_name
+                 )
+
+# 4D Venn diagram
+p <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+# colors: div = 9B2226 ; compo = DB912B ; dens = 005F73
+p
+
+```
+
+```{r Venn Diagram positive edges}
+
+library(ggVennDiagram)
+
+tmp_venn <- list("all"=PLN_model.StARS_xp2_edges$edge_name[PLN_model.StARS_xp2_edges$value>0],
+                 #"div"=PLN_model.StARS_incub_edges$edge_name[PLN_model.StARS_incub_edges$value>0],
+                 #"compo"=PLN_model.StARS_broth_edges$edge_name[PLN_model.StARS_broth_edges$value>0],
+                 "dens"=PLN_model.StARS_density_edges$edge_name[PLN_model.StARS_density_edges$value>0]
+                 )
+
+# 4D Venn diagram
+p <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+# colors: div = 9B2226 ; compo = DB912B ; dens = 005F73
+p
+
+```
+
+```{r Venn Diagram negative edges}
+
+library(ggVennDiagram)
+
+tmp_venn <- list("all"=PLN_model.StARS_xp2_edges$edge_name[PLN_model.StARS_xp2_edges$value<0],
+                 "div"=PLN_model.StARS_incub_edges$edge_name[PLN_model.StARS_incub_edges$value<0],
+                 "compo"=PLN_model.StARS_broth_edges$edge_name[PLN_model.StARS_broth_edges$value<0],
+                 "dens"=PLN_model.StARS_density_edges$edge_name[PLN_model.StARS_density_edges$value<0]
+                 )
+
+# 4D Venn diagram
+p <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+# colors: div = 9B2226 ; compo = DB912B ; dens = 005F73
+p
+
+```
+
+
+```{r Venn Diagram nodes}
+
+library(ggVennDiagram)
+
+tmp_venn <- list("all"=PLN_model.StARS_xp2_nodes,
+                 "div"=PLN_model.StARS_incub_nodes,
+                 "compo"=PLN_model.StARS_broth_nodes,
+                 "dens"=PLN_model.StARS_density_nodes)
+# 4D Venn diagram
+ggVennDiagram(tmp_venn, color = "#005F73", lwd = 0.8, lty = 1) + 
+  scale_fill_gradient(low = "#ffffff", high = "#DB912B")
+
+# colors: div = 9B2226 ; compo = DB912B ; dens = 005F73
+
+```
+
+```{r extract edges from venn to itol}
+
+tmp_edges_venn = p[["layers"]][[1]][["data"]][["item"]][[1]]
+
+# rename df
+tmp_itol = PLN_model.StARS_xp2_edges
+
+# add edges name column
+tmp_itol[,"edge_name"] <- paste0(tmp_itol$source,"__",tmp_itol$target)
+
+# subset edges
+tmp_itol <- tmp_itol[tmp_itol$edge_name %in% tmp_edges_venn,]
+
+# add edge color & style
+tmp_itol[,"color"] <- ifelse(tmp_itol$value > 0, "#3399FF","#FF3366")
+tmp_itol[,"style"] <- rep("normal",nrow(tmp_itol))
+# edge absolute values
+tmp_itol$value <- abs(tmp_itol$value)
+
+# write csv
+tmp_itol$edge_name <- NULL
+write.csv(tmp_itol,paste0("iTOL/tmp_itol_connection.csv"),row.names = F,quote = F)
+
+
+```
+
+### barplots
+
+
+```{r edges explained by all factors}
+# /!\ need venn diagram for edges
+# edges in Venn
+tmp_edges_venn = p[["layers"]][[1]][["data"]][["item"]][[1]]
+
+# rename df & add edge color
+tmp_edges = PLN_model.StARS_xp2_edges
+tmp_edges[,"edge_color"] <- ifelse(tmp_edges$value > 0, "pos","neg")
+
+tmp_edges[,"in_venn"] <- "all"
+#tmp_edges[,"in_venn"] <- ifelse(tmp_edges$edge_name %in% tmp_edges_venn,"in","not_in")
+
+tmp = tmp_edges[tmp_edges$edge_name %in% tmp_edges_venn,]
+tmp$in_venn <- "in_venn"
+tmp_edges <- rbind(tmp_edges,tmp)
+
+library(ggplot2)
+
+ggplot(tmp_edges) +
+ aes(x = in_venn, y = value) +
+ geom_boxplot(fill = "#112446") +
+ theme_minimal() +
+ facet_wrap(vars(edge_color))
+
+ggplot(tmp_edges) +
+ aes(x = in_venn, fill = edge_color) +
+ geom_bar(position = "fill") +
+ scale_fill_hue(direction = 1) +
+ theme_minimal()
+
+ggplot(tmp_edges) +
+  aes(x = edge_color, fill = in_venn) +
+  geom_bar(position = "fill") +
+  scale_fill_hue(direction = 1) +
+  theme_minimal()
+
+```
+
+```{r edges explained by at least 1 factor}
+# /!\ need venn diagram for edges
+# edges in Venn
+tmp_edges_venn = p[["layers"]][[1]][["data"]][["item"]][[15]]
+
+# rename df & add edge color
+tmp_edges = PLN_model.StARS_xp2_edges
+tmp_edges[,"edge_color"] <- ifelse(tmp_edges$value > 0, "pos","neg")
+
+tmp_edges[,"in_venn"] <- "all"
+#tmp_edges[,"in_venn"] <- ifelse(tmp_edges$edge_name %in% tmp_edges_venn,"in","not_in")
+
+# edges in venn
+tmp = tmp_edges[!(tmp_edges$edge_name %in% tmp_edges_venn),]
+tmp$in_venn <- "in_venn"
+tmp_edges <- rbind(tmp_edges,tmp)
+
+library(ggplot2)
+
+ggplot(tmp_edges) +
+ aes(x = in_venn, y = value) +
+ geom_boxplot(fill = "#112446") +
+ theme_minimal() +
+ facet_wrap(vars(edge_color))
+
+ggplot(tmp_edges) +
+ aes(x = in_venn, fill = edge_color) +
+ geom_bar(position = "fill") +
+ scale_fill_hue(direction = 1) +
+ theme_minimal()
+
+ggplot(tmp_edges) +
+  aes(x = edge_color, fill = in_venn) +
+  geom_bar(position = "fill") +
+  scale_fill_hue(direction = 1) +
+  theme_minimal()
+
+```
+
+
+# network with all factors as covar
+
+## network inference
+
+See https://mia-paris.pages.mia.inra.fr/formation_abondance_reseau/tutoriels/PLN/mollusk.html#65
+
+```{r model}
+
+tmp_ps = ps_16S_fltr
+
+tmp_factor_list = c("broth","incub","density" )
+
+# calculate offset
+tmp_otu_table = t(tmp_ps@otu_table@.Data)
+tmp_Offset <- compute_offset(tmp_otu_table, offset = "TSS")
+# covariable dataframe
+tmp_covariables = data.frame(tmp_ps@sam_data)
+tmp_covariables = tmp_covariables[,c("sample","treatment",tmp_factor_list)]
+# prepare dataframe
+tmp_df <- prepare_data(counts = tmp_otu_table,covariates =  tmp_covariables)
+tmp_df$Offset <- tmp_Offset
+# calcule network
+tmp_network <- PLNnetwork(Abundance ~ 0 + incub + broth + density + offset(log(Offset)), data = tmp_df)
+# obtain best model
+tmp_model.StARS <- tmp_network$getBestModel("StARS")
+# rename model
+gdata::mv("tmp_model.StARS","PLN_model.StARS_all_covar")
+
+
+# save models
+#save(list = names(.GlobalEnv)[grep("PLN_model",names(.GlobalEnv))],file="PLN_model_StARS_all_ttt.RData")
+
+```
+
+```{r extract network}
+
+
+tmp_model.StARS = PLN_model.StARS_all_covar
+# graph adjacency matrix (value = partial correlation value)
+tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+# remove redundant data from the matrix
+diag(tmp_adjacency.StARS)=0
+tmp_adj=tmp_adjacency.StARS
+tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+# define a partial correlation threshold
+tmp_thrld = 0.0
+# extract edges above a threshold and involved nodes
+tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+tmp_edges_val = tmp_adj[tmp_edges]
+tmp_edges_otu <- tibble("source"=rownames(tmp_adj)[tmp_edges[,1]],
+                        "target"=colnames(tmp_adj)[tmp_edges[,2]],
+                        "value"=tmp_edges_val)
+# name edges
+tmp_edges_otu[,"edge_name"] <- paste0(apply(tmp_edges_otu[,c("source","target")],1,sort)[1,],
+                                      "__",apply(tmp_edges_otu[,c("source","target")],1,sort)[2,])
+
+# extract involved nodes
+tmp_nodes <- unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+
+
+# rename df
+gdata::mv("tmp_edges_otu","PLN_model.StARS_all_covar_edges")
+gdata::mv("tmp_nodes","PLN_model.StARS_all_covar_nodes")
+
+
+
+# extract network for cytoscape
+#write.csv(tmp_edges_otu,file = paste0("cytoscape_PLN_net",tmp_thrld,".csv"),quote = F,row.names = F)
+
+```
+
+
+# networks for each treatment
+
+## model
+
+```{r}
+
+tmp_ps0 = ps_16S_fltr
+
+tmp_ttt_list = unique(tmp_ps0@sam_data$treatment)
+
+for (tmp_ttt in tmp_ttt_list) {
+  
+  # subset treatment
+  tmp_ps = prune_samples(tmp_ps0@sam_data$treatment == tmp_ttt,tmp_ps0)
+  # calculate offset
+  tmp_otu_table = t(tmp_ps@otu_table@.Data)
+  tmp_Offset <- compute_offset(tmp_otu_table, offset = "TSS")
+  # covariable dataframe
+  tmp_covariables = data.frame(tmp_ps@sam_data)
+  tmp_covariables = tmp_covariables[,c("sample","treatment")]
+  # prepare dataframe
+  tmp_df <- prepare_data(counts = tmp_otu_table,covariates =  tmp_covariables)
+  tmp_df$Offset <- tmp_Offset
+  # calcule network
+  tmp_network <- PLNnetwork(Abundance ~ 1 + offset(log(Offset)), data = tmp_df)
+  # obtain best model
+  tmp_model.StARS <- tmp_network$getBestModel("StARS")
+  # rename model
+  gdata::mv("tmp_model.StARS",paste0("PLN_model.StARS_",tmp_ttt))
+
+}
+
+
+# save models
+#save(list = names(.GlobalEnv)[grep("PLN_model",names(.GlobalEnv))],file="PLN_model_StARS_all_ttt.RData")
+
+```
+
+## extract networks
+
+```{r extract network for each treatment}
+
+tmp_ps = ps_16S_fltr
+
+tmp_ttt_list = unique(tmp_ps0@sam_data$treatment)
+
+tmp_network_df = tibble("network_name"=names(.GlobalEnv)[grep("PLN_model",names(.GlobalEnv))],
+                        "treatment"=str_remove(names(.GlobalEnv)[grep("PLN_model",names(.GlobalEnv))],
+                                               "PLN_model.StARS_"))
+#tmp_network_df = tmp_network_df[tmp_network_df$treatment %in% tmp_ttt_list,] # remove global network
+
+tmp_edges_ttt_global = tibble()
+
+
+for (tmp_ttt in c("xp2_coal",tmp_ttt_list)) {
+  
+  # rename network
+  gdata::mv(tmp_network_df$network_name[tmp_network_df$treatment == tmp_ttt],"tmp_model.StARS")
+  
+  # graph adjacency matrix (value = partial correlation value)
+  tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+  # remove redundant data from the matrix
+  diag(tmp_adjacency.StARS)=0
+  tmp_adj=tmp_adjacency.StARS
+  tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+
+  # extract edges above a threshold and involved nodes
+  tmp_thrld = 0.06
+  tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+  tmp_edges_val = tmp_adj[tmp_edges]
+  tmp_edges_otu <- tibble("treatment" = rep(tmp_ttt,length(tmp_edges_val)),
+                          "source"=rownames(tmp_adj)[tmp_edges[,1]],
+                          "target"=colnames(tmp_adj)[tmp_edges[,2]],
+                          "value"=tmp_edges_val)
+  tmp_source_taxa <- tibble("source"=tmp_taxtab$OTU[tmp_taxtab$OTU %in% tmp_edges_otu$source],
+                            "source_taxa"=tmp_taxtab$taxa[tmp_taxtab$OTU %in% tmp_edges_otu$source])
+  tmp_target_taxa <- tibble("target"=tmp_taxtab$OTU[tmp_taxtab$OTU %in% tmp_edges_otu$target],
+                            "target_taxa"=tmp_taxtab$taxa[tmp_taxtab$OTU %in% tmp_edges_otu$target])
+  tmp_edges_final <- left_join(tmp_edges_otu,tmp_source_taxa,by="source")
+  tmp_edges_final <- left_join(tmp_edges_final,tmp_target_taxa,by="target")
+  
+  tmp_edges_ttt_global <- rbind(tmp_edges_ttt_global,tmp_edges_final)
+  
+  # rename network
+  gdata::mv("tmp_model.StARS",tmp_network_df$network_name[tmp_network_df$treatment == tmp_ttt])
+  
+
+}
+
+```
+
+```{r  node taxonomy depending on the treatment}
+
+tmp_ps = ps_16S_fltr
+tmp_ttt_list = unique(tmp_ps0@sam_data$treatment)
+
+# create a df with taxonomy of nodes
+tmp_data = tibble()
+for (tmp_ttt in c("xp2_coal",tmp_ttt_list)) {
+  
+  tmp_edges = tmp_edges_ttt_global[tmp_edges_ttt_global$treatment == tmp_ttt,]
+  tmp_df = tibble("treatment"= rep(tmp_ttt,length(unique(tmp_edges$source,tmp_edges$target))),
+                  "OTU"=unique(tmp_edges$source,tmp_edges$target),
+                  "presence"= rep(1,length(unique(tmp_edges$source,tmp_edges$target))))
+  tmp_df <- left_join(tmp_df,tmp_taxtab[,c("OTU","taxa")],by="OTU")
+  
+  tmp_data <- rbind(tmp_data,tmp_df)
+
+}
+
+# add color
+## select taxa colors and order 
+tmp_color <- Colors_16p
+tmp_color[,"taxa"] <- c(tmp_most_abund[order(tmp_most_abund)],"Others","Unknown")
+tmp_color <- tmp_color[tmp_color$taxa %in% tmp_data$taxa,]
+## add taxa color and order
+tmp_plot_data <- left_join(tmp_data,tmp_color, by = "taxa")
+
+# plot
+p <- ggplot(tmp_plot_data, aes(x=treatment, y=presence,
+                               fill= reorder(taxa,order)))+
+  geom_bar(stat = "identity", position = "stack")+
+  theme_classic()+
+  scale_fill_manual(name = "taxa",
+                    values = tmp_color$color)+ 
+  labs(x="Treatment Network", y= "Node number",
+       title = "Taxonomy of network nodes depending on the treatment (0.06 threshold)", color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+
+```
+
+```{r firmicutes}
+
+tmp_ps = ps_16S_fltr
+tmp_ttt_list = c("C","MAC_a1d1","MAC_a1d2","MAC_a1d3","MAC_a2d1","MAC_a2d2","MAC_a2d3",
+                 "PEB_a1d1","PEB_a1d2","PEB_a1d3","PEB_a2d1","PEB_a2d2","PEB_a2d3")
+
+# create a df with edges between firmicutes and proteo
+tmp_data = tibble()
+
+for (tmp_ttt in c("xp2_coal",tmp_ttt_list)) {
+  
+  tmp_edges0 = tmp_edges_ttt_global[tmp_edges_ttt_global$treatment == tmp_ttt,]
+  tmp_edges = tmp_edges0[tmp_edges0$source_taxa == "Firmicutes" | tmp_edges0$target_taxa == "Firmicutes" ,]
+  
+  tmp_df = tibble("treatment"= tmp_ttt,
+                  "nb_edge"=nrow(tmp_edges0),
+                  "nb_edge_pos"=nrow(tmp_edges0[tmp_edges0$value >0,]),
+                  "nb_edge_neg"=nrow(tmp_edges0[tmp_edges0$value <0,]),
+                  "nb_nodes"=length(unique(tmp_edges0$source,tmp_edges0$target)),
+                  "nb_edge_gamma"=nrow(tmp_edges[tmp_edges$source_taxa =="Gammaproteobacteria"
+                                                 | tmp_edges$target_taxa == "Gammaproteobacteria",]),
+                  "nb_edge_gamma_pos"=nrow(tmp_edges[tmp_edges$value >0 &
+                                                       (tmp_edges$source_taxa =="Gammaproteobacteria" |
+                                                          tmp_edges$target_taxa == "Gammaproteobacteria"),]),
+                  "nb_edge_gamma_neg"=nrow(tmp_edges[tmp_edges$value <0 &
+                                                       (tmp_edges$source_taxa =="Gammaproteobacteria" |
+                                                          tmp_edges$target_taxa == "Gammaproteobacteria"),]),
+                  "nb_edge_alpha"=nrow(tmp_edges[tmp_edges$source_taxa =="Alphaproteobacteria"
+                                                 | tmp_edges$target_taxa == "Alphaproteobacteria",]),
+                  "nb_edge_alpha_pos"=nrow(tmp_edges[tmp_edges$value >0 &
+                                                       (tmp_edges$source_taxa =="Alphaproteobacteria" |
+                                                          tmp_edges$target_taxa == "Alphaproteobacteria"),]),
+                  "nb_edge_alpha_neg"=nrow(tmp_edges[tmp_edges$value <0 &
+                                                       (tmp_edges$source_taxa =="Alphaproteobacteria" |
+                                                          tmp_edges$target_taxa == "Alphaproteobacteria"),]))
+  
+  tmp_data <- rbind(tmp_data,tmp_df)
+
+}
+
+
+# plot nb edges 
+tmp_plot_data = tmp_data[,c("treatment","nb_edge_pos","nb_edge_neg")]
+colnames(tmp_plot_data) = c("treatment","Positive","Negative")
+tmp_plot_data <- pivot_longer(tmp_plot_data,!treatment, names_to = "edges_type", values_to = "nb_edge")
+
+p <- ggplot(tmp_plot_data, aes(x=treatment, y=nb_edge,
+                               fill= edges_type))+
+  geom_bar(stat = "identity", position = "stack")+
+  theme_classic()+
+  labs(x="Treatment Network", y= "Edges number",
+       title = "Sign of network edges depending on the treatment (0.06 threshold)", color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+
+# plot nb edges between firmicutes and gamma prot
+tmp_plot_data = tmp_data[,c("treatment","nb_edge_gamma_pos","nb_edge_gamma_neg")]
+colnames(tmp_plot_data) = c("treatment","Positive","Negative")
+tmp_plot_data <- pivot_longer(tmp_plot_data,!treatment, names_to = "edges_type", values_to = "nb_edge")
+
+p <- ggplot(tmp_plot_data, aes(x=treatment, y=nb_edge,
+                               fill= edges_type))+
+  geom_bar(stat = "identity", position = "stack")+
+  theme_classic()+
+  labs(x="Treatment Network", y= "Edges number",
+       title = "Sign of network edges between Firmicutes and Gammaproteobacteria depending on the treatment (0.06 threshold)",
+       color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+
+# plot nb edges between firmicutes and alpha prot
+tmp_plot_data = tmp_data[,c("treatment","nb_edge_alpha_pos","nb_edge_alpha_neg")]
+colnames(tmp_plot_data) = c("treatment","Positive","Negative")
+tmp_plot_data <- pivot_longer(tmp_plot_data,!treatment, names_to = "edges_type", values_to = "nb_edge")
+
+p <- ggplot(tmp_plot_data, aes(x=treatment, y=nb_edge,
+                               fill= edges_type))+
+  geom_bar(stat = "identity", position = "stack")+
+  theme_classic()+
+  labs(x="Treatment Network", y= "Edges number",
+       title = "Sign of network edges between Firmicutes and Alphaproteobacteria depending on the treatment (0.06 threshold)",
+       color = "#333333")+
+  scale_y_continuous(expand = c(0,0))+
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()
+
+
+p
+```

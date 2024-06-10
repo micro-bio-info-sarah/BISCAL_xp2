@@ -1,0 +1,1411 @@
+---
+title: "5.3.Plot_stat_results"
+author: "Sarah HUET"
+date: "25/01/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(tibble)
+library(phyloseq)
+
+library(car)
+library(lme4)
+library(svglite)
+
+
+#load data
+load("E:/Research/Thesis/EMFEED/BISCAL_xp2_coal/R_xp2_coal/.RData")
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+# save data
+#save(list = names(.GlobalEnv)[grep("stat_q",names(.GlobalEnv))],file = "RData_stat.RData")
+
+```
+
+# Q1 : F-value
+
+## for diversity metrics
+
+```{r plot F value}
+
+tmp_data = stat_q1_metric
+
+# set up variables and metrics
+tmp_var = tibble("var"=unique(tmp_data$var),
+                 "var_order"=c(2,1,3,4,6,5,7,8),
+                 "var_type"=rep(c("var1","var2","var3","resid"),
+                                c(3,3,1,1)))
+## put metric order
+tmp_metric = tibble("metric"=unique(tmp_data$metric),
+                    "metric_order"=c(1:4),
+                    "metric_type"=rep(c("alpha","beta"),c(3,1)))
+# wrangle data
+tmp_data <- left_join(tmp_data,tmp_metric)
+tmp_data <- left_join(tmp_data,tmp_var)
+# select data
+tmp_data <- tmp_data[tmp_data$var %in% unique(tmp_data$var[tmp_data$pval_adjust <= 0.05]),]
+tmp_data <- tmp_data[tmp_data$metric %in% tmp_metric$metric,]
+
+#####
+# plot significant variables
+## select colors
+tmp_color <- tibble("color"=Color_sets$color[Color_sets$set=="7c"],
+                    "var_order"=Color_sets$order[Color_sets$set=="7c"])
+## add color and order 
+tmp_data <- left_join(tmp_data,tmp_color, by = "var_order")
+
+## plot
+p <- ggplot(tmp_data, aes(x=reorder(metric,desc(metric_order)),
+                          y=signif,
+                          fill= reorder(var,var_order)))+
+  geom_bar(stat = "identity", position = "fill")+
+  theme_classic()+
+  scale_fill_manual(values = tmp_color$color)+ 
+  labs(x="Diversity metric", y= paste0("\n","F value proportion"),
+       #title = "Variable F-values by diversity metric",
+       color = "#333333")+
+  theme(title = element_text(face="bold", size=12),
+        legend.position = "none",
+        axis.title.x = element_text(face="bold", size=10), 
+        axis.text.x  = element_text(vjust=0.5, size=8,angle = 0),
+        axis.title.y = element_text(face="bold", size=10), 
+        axis.text.y  = element_text(vjust=0.5, size=8),
+        strip.text = element_text(face="bold", size=10),
+        strip.background = element_rect(fill="#ffffff", colour="#ffffff",size=1.5),
+        strip.placement = "outside")+
+  coord_flip()+
+  facet_grid(metric_type~var_type,
+             scales = "free",
+             switch = "y", 
+             space = "free_y")
+
+p
+
+fig_div[["Fvalue_div_metrics"]] <- p
+
+```
+
+```{r}
+# F val proportion values
+tmp_data = fig_div$Fvalue_div_metrics$data
+
+for (tmp_index in unique(tmp_data$metric)) {
+  
+  tmp_df = tmp_data[tmp_data$metric == tmp_index & tmp_data$var_type == "var1",c("var","signif")]
+  tmp_df[,"proportion"] <- tmp_df$signif / sum(tmp_df$signif)*100
+  print(tmp_index)
+  print(tmp_df)
+  
+}
+
+```
+
+## for OTUs
+
+### basics
+
+```{r nb OTUS by var}
+
+# nb OTUs total
+unique(stat_q1_otu$OTU[stat_q1_otu$pval_adjust <= 0.05])
+
+# number of OTUs by variables
+tmp_df= stat_q1_otu_rel %>%
+  dplyr::filter(pval_adjust <= 0.05) %>%
+  dplyr::group_by(var) %>%
+  dplyr::summarise(nb_OTUs=n())
+tmp_df
+
+# plot
+
+## factor ordering and colors
+tmp_df$var <- factor(tmp_df$var,
+                     levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+
+p <- ggplot(tmp_df) +
+  aes(x = var, y = nb_OTUs,fill = var) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = tmp_colors)+
+  theme_light()
+p
+
+
+
+```
+
+```{r nb OTUS by var and taxo}
+
+# subset signif comp
+tmp_df = stat_q1_otu_rel %>% dplyr::filter(pval_adjust <= 0.05)
+# add taxo
+tmp_df <- left_join(tmp_df,taxtab[,c("OTU","taxa")],by="OTU")
+
+# summarise nb OTU by taxa
+tmp_df1 <- tmp_df[,c("OTU","taxa")] %>%
+  dplyr::distinct() %>%
+  dplyr::group_by(taxa) %>%
+  dplyr::summarise(nb_OTU = n())
+
+# summarise nb OTU by var and taxa
+tmp_df2 <- tmp_df %>%
+  dplyr::group_by(taxa,var) %>%
+  dplyr::summarise(nb_comp = n())
+
+# add empty taxa
+tmp <- tibble("taxa" = setdiff(unique(taxtab$taxa),unique(tmp_df$taxa)),
+              "nb_OTU" = 0,
+              "var" = "a",
+              "nb_comp" = 0)
+tmp_df1 <- rbind(tmp_df1,tmp[,colnames(tmp_df1)])
+tmp_df2 <- rbind(tmp_df2,tmp[,colnames(tmp_df2)])
+
+# plot
+
+## factor ordering and colors
+tmp_df2$var <- factor(tmp_df2$var,
+                     levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+tmp_df1$taxa <- factor(tmp_df1$taxa,levels = rev(levels(reorder(taxtab$taxa,taxtab$order))))
+
+ggplot() +
+  geom_col(data = tmp_df1, aes(x = taxa, y = nb_OTU),fill="#b3b3b3") +
+  geom_col(data = tmp_df2,aes(x = taxa, y = nb_comp, fill = var),position = position_dodge(preserve = "total")) +
+  scale_fill_manual(values = tmp_colors) +
+  coord_flip() +
+  theme_light()
+
+```
+
+```{r rel fval by taxa}
+
+# subset signif comp
+tmp_df = stat_q1_otu_rel
+# add taxo
+tmp_df <- left_join(tmp_df,taxtab[,c("OTU","taxa")],by="OTU")
+
+# add empty taxa
+tmp <- tibble("taxa" = setdiff(unique(taxtab$taxa),unique(tmp_df$taxa)),
+              "sign_comp" = c("up","down"),
+              "nb_comp" = 0)
+tmp_df1 <- rbind(tmp_df1,tmp)
+
+# plot
+## factor ordering and colors
+tmp_df$var <- factor(tmp_df$var,
+                     levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+tmp_df$var_type <- factor(tmp_df$var_type,
+                     levels = c("main","double","triple"))
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+tmp_df$taxa <- factor(tmp_df$taxa,levels = rev(levels(reorder(taxtab$taxa,taxtab$order))))
+
+## plot relative property effects
+tmp_df %>%
+  dplyr::group_by(taxa,var,var_type) %>%
+  dplyr::summarise(mean_rfval = mean(rel_fval)) %>%
+  ggplot() +
+  aes(x=taxa,y=mean_rfval,fill= var)+
+  geom_col(position = "fill")+
+  scale_fill_manual(values = tmp_colors)+
+  coord_flip()+
+  facet_grid(~var_type,
+             scales = "free",
+             switch = "y", 
+             space = "free_y") +
+  theme_classic() +
+    theme(strip.text = element_text(face="bold", size=10),
+        strip.background = element_rect(fill="#ffffff", colour="#ffffff",size=1.5),
+        strip.placement = "outside")
+
+```
+
+### specifics 
+
+#### significant variables & taxonomy
+
+it seems that, depending on the taxonomy, it is not the same variables that have the most impact
+
+```{r var signif depending on taxonomy}
+
+# plot significant variables
+tmp_df = stat_q1_otu
+## select data significant variables
+tmp_data = tmp_df[complete.cases(tmp_df),]
+tmp_data = tmp_data[tmp_data$pval_adjust <= 0.05,]
+
+#####
+# add taxonomy information
+
+tmp_ps = ps_16S_fltr
+
+## extract taxo table
+tmp_taxtab = tibble("OTU"=taxa_names(tmp_ps),
+                    "Phylum"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "class"=str_remove(tmp_ps@tax_table@.Data[,"Class"],"[D]_[0123456789]__"),
+                    "taxa"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "Abundance" = as.numeric(taxa_sums(tmp_ps)))
+
+# wrangle taxo
+## change unclassified by "Unknown"
+tmp_taxtab[is.na(tmp_taxtab)] <- "Unknwon"
+## put class for proteo
+tmp_taxtab$taxa[tmp_taxtab$Phylum == "Proteobacteria"] <- tmp_taxtab$class[tmp_taxtab$Phylum == "Proteobacteria"]
+## select most abundant taxa
+tmp_most_abund = tmp_taxtab %>% group_by(taxa) %>% summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$taxa[order(tmp_most_abund$sum, decreasing = TRUE)[1:12]]
+sort(tmp_most_abund)
+## change rare taxa by "Others"
+tmp_taxtab$taxa[!(tmp_taxtab$taxa %in% c(tmp_most_abund,"Unknown"))] <- "Others"
+
+## join taxonomy info & table
+tmp_data <- left_join(tmp_data,tmp_taxtab[,c("OTU","taxa","Abundance")])
+
+
+#####
+# wrangle data & plot
+
+## select colors
+tmp_color <- tibble("var"=c("b","a","d","b:a","b:d","a:d","b:a:d"),
+                    "color"=Color_sets$color[Color_sets$set=="7c"],
+                    "color_order"=Color_sets$order[Color_sets$set=="7c"])
+## set OTU order
+tmp_order = tibble("OTU"=sort(unique(tmp_data$OTU)),
+                   "y.order"=c(1:length(unique(tmp_data$OTU))))
+## add color and order 
+tmp_data <- left_join(tmp_data,tmp_color, by = "var")
+tmp_data <- left_join(tmp_data,tmp_order,by="OTU")
+
+## plot
+p <- ggplot(tmp_data, aes(x=reorder(OTU,y.order),
+                          y=`F value`,
+                          fill= reorder(var,color_order)))+
+  geom_bar(stat = "identity", position = "fill")+
+  theme_classic()+
+  scale_fill_manual(name = "Variables",
+                    values = tmp_color$color)+ 
+  labs(x="OTU", y= paste0("\n","F value"),
+       title = "Variable F-values by OTU", color = "#333333")+
+  #scale_y_continuous(expand = c(0,0))+
+  #scale_y_log10()+ # i cant make a proper bar graph with a scale log ...
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  coord_flip()+
+  facet_wrap(vars(tmp_data$taxa),scales = "free")
+
+
+p
+
+
+```
+
+#### triple interaction
+
+I want to investigate OTUs with a significant triple interaction
+
+```{r otu with signif triple interaction}
+
+# select otu
+tmp_df=stat_q1_otu
+tmp_df = tmp_df[tmp_df$var == "b:a:d" & tmp_df$pval_adjust <= 0.05,]
+tmp_OTU= sort(tmp_df$OTU)
+tmp_df= stat_q1_otu[stat_q1_otu$OTU %in% tmp_OTU,]
+
+#####
+# plot relative abundance in treatment
+## choose ps object
+tmp_ps = ps_16S_fltr
+## transform to relative abundance 
+tmp_ps <- transform_sample_counts(tmp_ps,function(x) x / sum(x))
+## prune taxa
+tmp_ps = prune_taxa(taxa_names(tmp_ps) %in% tmp_OTU,tmp_ps)
+## wrangle ps object
+tmp_data = psmelt(tmp_ps)
+## plot
+p <- ggplot(tmp_data,aes(tmp_data$treatment,tmp_data$Abundance))+
+  geom_boxplot()+
+  geom_jitter(color="red", size=0.5, alpha=0.9) +
+  labs(title = tmp_OTU,y="Relative abundance among filtered OTUs (log scale)",x="Treatments")+
+  scale_y_log10()+
+  geom_hline(yintercept = 0.25/100)+
+  geom_hline(yintercept = 0.1/100)+
+  geom_hline(yintercept = 0)+
+  facet_wrap(vars(OTU))+
+  theme(axis.text.x  = element_text(vjust=0.5, size=5,angle = 90))
+p
+
+#####
+# plot significant variables
+## select data
+tmp_data = tmp_df[complete.cases(tmp_df),]
+tmp_data$`F value`[tmp_data$pval_adjust > 0.05] <- 0
+tmp_data = tmp_data[tmp_data$pval_adjust <= 0.05,]
+
+## select colors
+tmp_color <- tibble("var"=unique(tmp_data$var),
+                    "color"=Color_sets$color[Color_sets$set=="7p"],
+                    "color_order"=Color_sets$order[Color_sets$set=="7p"])
+## set OTU order
+tmp_order = tibble("OTU"=sort(unique(tmp_data$OTU)),
+                   "y.order"=c(1:length(unique(tmp_data$OTU))))
+## add color and order 
+tmp_data <- left_join(tmp_data,tmp_color, by = "var")
+tmp_data <- left_join(tmp_data,tmp_order,by="OTU")
+## plot
+p <- ggplot(tmp_data, aes(x=reorder(OTU,y.order),
+                          y=`F value`,
+                          fill= reorder(var,color_order)))+
+  geom_bar(stat = "identity", position = "dodge")+
+  theme_classic()+
+  scale_fill_manual(name = "Variables",
+                    values = tmp_color$color)+ 
+  labs(x="OTU", y= paste0("\n","F value"),
+       title = "Variable F-values by OTU", color = "#333333")+
+  #scale_y_continuous(expand = c(0,0))+
+  #scale_y_log10()+ # i cant make a proper bar graph with a scale log ...
+  theme(title = element_text(face="bold", size=15),
+        legend.position = "right",
+        axis.title.x = element_text(face="bold", size=14), 
+        axis.text.x  = element_text(vjust=0.5, size=12,angle = 0),
+        axis.title.y = element_text(face="bold", size=14), 
+        axis.text.y  = element_text(vjust=0.5, size=12),
+        strip.text = element_text(face="bold", size=12),
+        strip.background = element_rect(fill="white", colour="#333333",size=1.5))+
+  #coord_flip()+
+  coord_trans(ytrans="log10")
+
+
+p
+
+```
+
+### itol
+
+```{r write tree}
+library(ape)
+
+tmp_ps = ps_16S_fltr
+
+tmp_tree = tmp_ps@phy_tree
+
+#write.tree(tmp_tree,"iToL/tmp_itol_tree.tre")
+
+
+```
+
+```{r write tree: taxo}
+library(stringr)
+
+tmp_ps = ps_16S_fltr
+
+# extract taxo table
+tmp_taxtab = tibble("OTU"=taxa_names(tmp_ps),
+                    "Kingdom"=str_remove(tmp_ps@tax_table@.Data[,"Kingdom"],"[D]_[0123456789]__"),
+                    "Phylum"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "class"=str_remove(tmp_ps@tax_table@.Data[,"Class"],"[D]_[0123456789]__"),
+                    "taxa"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "Abundance" = as.numeric(taxa_sums(tmp_ps)))
+
+# wrangle taxo
+## change unclassified by "Unknown"
+tmp_taxtab[is.na(tmp_taxtab)] <- "Unknwon"
+## put class for proteo
+tmp_taxtab$taxa[tmp_taxtab$Phylum == "Proteobacteria"] <- tmp_taxtab$class[tmp_taxtab$Phylum == "Proteobacteria"]
+## select most abundant taxa
+tmp_most_abund = tmp_taxtab %>% group_by(taxa) %>% summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$taxa[order(tmp_most_abund$sum, decreasing = TRUE)[1:12]]
+sort(tmp_most_abund)
+##change rare taxa by "Others"
+tmp_taxtab$taxa[!(tmp_taxtab$taxa %in% c(tmp_most_abund,"Unknown"))] <- "Others"
+
+# add color
+## select taxa colors and order 
+tmp_color <- Color_sets[Color_sets$set == "taxo",2:3]
+tmp_color[,"taxa"] <- c(sort(tmp_most_abund),"Others","Unknown")
+## add taxa color and order
+tmp_data = tmp_taxtab[,c("OTU","taxa")]
+tmp_data <- left_join(tmp_data,tmp_color, by = "taxa")
+
+# wrangle final df
+tmp_data[,"range"] <- rep("range", nrow(tmp_data))
+tmp_data <- tmp_data[,c("OTU","range","color","taxa")]
+
+#write.csv(tmp_data,"iTOL/tmp_itol_tree_taxo.csv",row.names = F,quote = F)
+
+
+```
+
+```{r write tree multibar: F_value of OTU significant variables}
+
+# subset data
+tmp_data <- stat_q1_otu_rel %>%
+  dplyr::filter(var != "Residuals" &
+                  pval_adjust <= 0.05)
+
+# select data
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "var"= tmp_data$var,
+                  "f_val"=tmp_data$rel_fval)
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = var, values_from = f_val,values_fill = list(f_val = 0))
+tmp_data <- tmp_data[,c("OTU","a","b","d","b:a","a:d","b:d","b:a:d")]
+
+# add missing OTUs
+tmp <- tibble("OTU" = setdiff(taxa_names(ps_16S_fltr),tmp_data$OTU))
+for (tmp_i in colnames(tmp_data)[-1]) {tmp[,tmp_i] <- 0}
+tmp_data <- rbind(tmp_data,tmp)
+
+```
+
+```{r extract multibar data}
+# extrcat data
+write.csv(tmp_data,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+# subset data
+tmp_multibar = tmp_data[,c("OTU","a","b","d")]
+
+# extrcat data
+write.csv(tmp_multibar,"iTOL/tmp_itol_tree_data_var1.csv",row.names = F,quote = F)
+
+# subset data
+tmp_multibar = tmp_data[,c("OTU","b:a","a:d","b:d")]
+
+# extrcat data
+write.csv(tmp_multibar,"iTOL/tmp_itol_tree_data_var2.csv",row.names = F,quote = F)
+
+# subset data
+tmp_multibar = tmp_data[,c("OTU","b:a:d")]
+
+# extrcat data
+write.csv(tmp_multibar,"iTOL/tmp_itol_tree_data_var3.csv",row.names = F,quote = F)
+
+```
+
+### explore itol
+
+I want to assess which manipulated factor influenced the most OTU abundance
+```{r global}
+
+# number of OTU impacted by each factor
+nrow(tmp_data[tmp_data$a >0,])
+nrow(tmp_data[tmp_data$b >0,])
+nrow(tmp_data[tmp_data$d >0,])
+
+# mean impact of each factor
+mean(tmp_data$a[tmp_data$a >0])
+mean(tmp_data$b[tmp_data$b >0])
+mean(tmp_data$d[tmp_data$d >0])
+
+# density plot
+ggplot(tmp_data[tmp_data$b >0,]) +
+  aes(x = b) +
+  geom_density(adjust = 1L, fill = "#112446") +
+  theme_minimal()
+
+```
+
+https://rfunctions.blogspot.com/2014/02/measuring-phylogenetic-signal-in-r.html
+
+### phylogenetic signal
+
+```{r test phylo signal}
+# /!\ need tmp_data from {r write tree multibar: F_value of OTU significant variables}
+
+library(phytools)
+
+# tree
+tmp_ps = ps_16S_fltr
+tmp_tree = phy_tree(tmp_ps)
+
+# loop
+tmp_loop_df <- tibble()
+tmp_loop_df_lambda <- tibble()
+tmp_name_var <- c("a","b","d","b:a","a:d","b:d","b:a:d")
+for (tmp_i in tmp_name_var) {
+  
+  # trait
+  tmp_trait = unlist(tmp_data[,tmp_i])
+  names(tmp_trait) <- tmp_data$OTU
+  
+  # phylo signal
+  tmp_lambda <- phytools::phylosig(tmp_tree,tmp_trait,method = "lambda",test = T,nsim = 999)
+  tmp_K <- phytools::phylosig(tmp_tree,tmp_trait,method = "K",test = T,nsim = 999)
+  
+  # extract loop data
+  tmp <- tibble("var"=tmp_i,
+                "method"=c("lambda","K"),
+                "phylo_sig"=c(tmp_lambda$lambda,tmp_K$K),
+                "pval"=c(tmp_lambda$P,tmp_K$P))
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  
+  # etract lmbda data
+  tmp <- tibble("var"=tmp_i,
+                "lambda"=tmp_lambda$lambda,
+                "LR"=2*(tmp_lambda$logL- tmp_lambda$logL0),
+                "pval"=tmp_lambda$P)
+  tmp_loop_df_lambda <- rbind(tmp_loop_df_lambda,tmp)
+  
+}
+
+# pval adjust
+tmp_loop_df[,"pval_adjust"] <- tmp_loop_df$pval * nrow(tmp_loop_df)
+tmp_loop_df[,"asterisk"] <- ifelse(tmp_loop_df$pval_adjust <= 0.05,"*","")
+tmp_loop_df_lambda[,"pval_adjust"] <- tmp_loop_df_lambda$pval * nrow(tmp_loop_df_lambda)
+tmp_loop_df_lambda[,"asterisk"] <- ifelse(tmp_loop_df_lambda$pval_adjust >= 0.05,"","*")
+
+
+# plot
+tmp_loop_df$var <- factor(tmp_loop_df$var,levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+
+ggplot(tmp_loop_df) +
+ aes(x = var, y = phylo_sig, fill = method) +
+ geom_col(position = position_dodge(preserve = "single")) +
+ scale_fill_manual(values = c("#999999","#333333")) +
+ coord_flip() +
+ theme_light()
+
+# extract lambda data
+write.csv(tmp_loop_df_lambda,"C:/Users/srhuet/Downloads/tmp_phylosig.csv",quote = F,row.names = F)
+
+
+```
+
+
+
+### other itol
+```{r write tree shape: OTU significant variables}
+
+# select data
+tmp_data = stat_q1_otu
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "signif_var"= tmp_data$var,
+                  "signif"=tmp_data$pval_signif)
+
+# replace * by 1
+tmp_data$signif[tmp_data$signif %in% c("*","**","***")] <- 1
+tmp_data$signif[tmp_data$signif == ""] <- 0
+tmp_data$signif <- as.numeric(tmp_data$signif)
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = signif_var, values_from = signif)
+tmp_data <- tmp_data[,c("OTU","b","a","d","b:a","b:d","a:d","b:a:d")]
+
+# extrcat data
+write.csv(tmp_data,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r write tree piechart: F_value of OTU significant variables}
+
+# select data
+tmp_data = stat_q1_otu[stat_q1_otu$var != "Residuals",]
+
+# transforma f_val for visualization
+#tmp_data$`F value` <- exp(tmp_data$`F value`)
+#tmp_data$`F value` <- log(tmp_data$`F value`+1)
+
+# replace mean sq of non significant variables by 0
+tmp_data$`F value`[tmp_data$pval_adjust > 0.05] <- 0
+
+# subset data
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "var"= tmp_data$var,
+                  "f_val"=tmp_data$`F value`)
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = var, values_from = f_val)
+tmp_data <- tmp_data[,c("OTU","b","a","d","b:a","b:d","a:d","b:a:d")]
+tmp_data[,"external"] <- rep(-1,nrow(tmp_data))
+tmp_data[,"radius"] <- rep(20,nrow(tmp_data))
+
+# extrcat data
+write.csv(tmp_data,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+# subset data
+tmp_piechart = tmp_data[,c("OTU","external","radius","b","a","d")]
+
+# extrcat data
+write.csv(tmp_piechart,"iTOL/tmp_itol_tree_data_var.csv",row.names = F,quote = F)
+
+# subset data
+tmp_piechart = tmp_data[,c("OTU","external","radius","b:a","b:d","a:d")]
+
+# extrcat data
+write.csv(tmp_piechart,"iTOL/tmp_itol_tree_data_var2.csv",row.names = F,quote = F)
+
+# subset data
+tmp_piechart = tmp_data[,c("OTU","external","radius","b:a:d")]
+
+# extrcat data
+write.csv(tmp_piechart,"iTOL/tmp_itol_tree_data_var3.csv",row.names = F,quote = F)
+
+```
+
+# Q2 : heatmap
+
+## itol
+
+```{r write tree}
+library(ape)
+
+tmp_ps = ps_16S_fltr
+
+tmp_tree = tmp_ps@phy_tree
+
+#write.tree(tmp_tree,"iToL/tmp_itol_tree.tre")
+
+
+```
+
+```{r write tree: taxo}
+
+
+# wrangle final df
+tmp_data =taxtab
+tmp_data[,"range"] <- rep("range", nrow(tmp_data))
+tmp_data <- tmp_data[,c("OTU","range","color","taxa")]
+
+#write.csv(tmp_data,"iTOL/tmp_itol_tree_taxo.csv",row.names = F,quote = F)
+
+
+```
+
+```{r write tree: heatmap OTU estimates, comparison with control}
+
+tmp_df0 = stat_q2_otu_comparison_sum_w0
+tmp_ps = ps_16S_fltr
+
+# select data
+tmp_data = na.omit(tmp_df0) # remove OTUs for which model didnt work
+tmp_data = tmp_data[tmp_data$g1 == "C",]
+
+# create heatmap column
+tmp_data[,"heatmap"] <- 0
+tmp_data$heatmap <- ifelse(tmp_data$pval_adjust <= 0.05,
+                           - tmp_data$estimate,0) # inverse to have ttt-C
+# select data
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "signif_comp"= tmp_data$g2,
+                  "heatmap"= tmp_data$heatmap) 
+
+
+# add missing otu
+tmp_OTUs = setdiff(taxa_names(tmp_ps),unique(tmp_data$OTU))
+
+for (tmp_OTU in tmp_OTUs) {
+  
+  tmp_df = tibble("OTU"= rep(tmp_OTU,12),
+                  "signif_comp"= sort(unique(tmp_data$signif_comp)),
+                  "heatmap"= rep(0,length(unique(tmp_data$signif_comp))))
+  
+  tmp_data <- rbind(tmp_data,tmp_df)
+  
+}
+
+# set max values -6 and 6
+tmp_data$heatmap <- ifelse(tmp_data$heatmap < -6,-6,tmp_data$heatmap)
+tmp_data$heatmap <- ifelse(tmp_data$heatmap > 6,6,tmp_data$heatmap)
+
+# nb of OTUs pos and neg
+length(unique(tmp_data$OTU[tmp_data$heatmap >0]))
+length(unique(tmp_data$OTU[tmp_data$heatmap <0]))
+
+# wrangle data
+tmp_heatmap <- pivot_wider(tmp_data,names_from = signif_comp, values_from = heatmap)
+tmp_heatmap <- tmp_heatmap[,c("OTU",sort(unique(tmp_data$signif_comp)))]
+
+# extract data
+#write.csv(tmp_heatmap,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+# COLOR_MIN,#3399FF / COLOR_MAX,#FF3366
+
+```
+
+```{r write tree: heatmap multibar nb of ttt}
+
+tmp_df0 = stat_q2_otu_comparison_sum_w0
+tmp_ps = ps_16S_fltr
+
+# select comp with C and pval <= 0.05
+tmp_df <- tmp_df0 %>%
+  dplyr::filter(g1 == "C" & pval_adjust <= 0.05)
+# add comp sign
+tmp_df[,"sign_comp"] <- ifelse(tmp_df$estimate <0, "pos","neg") # estimate <0 = higher after coal
+# summarise nb ttt by OTU
+tmp_data <- tmp_df %>%
+  dplyr::group_by(OTU,sign_comp) %>%
+  dplyr::summarise(nb_ttt=n())
+
+# add missing otu
+tmp_df1 = expand.grid(setdiff(taxa_names(tmp_ps),unique(tmp_data$OTU)),
+                      c("pos","neg"))
+tmp_df1 <- tibble("OTU"=tmp_df1$Var1,
+                  "sign_comp"=tmp_df1$Var2,
+                  "nb_ttt"=0)
+tmp_data <- rbind(tmp_data,tmp_df1)
+
+# nb of OTUs pos and neg
+length(unique(tmp_data$OTU[tmp_data$sign_comp == "pos" & tmp_data$nb_ttt >0]))
+length(unique(tmp_data$OTU[tmp_data$sign_comp == "neg"& tmp_data$nb_ttt >0]))
+
+# wrangle data
+# wrangle data
+tmp_multibar <- pivot_wider(tmp_data,names_from = sign_comp, values_from = nb_ttt)
+tmp_multibar[is.na(tmp_multibar)] <- 0
+
+# extrcat data
+#write.csv(tmp_multibar,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+# color : pos ="#ff8eaa", neg="#3f7ebe")
+
+```
+
+## phylogenetic signal
+
+```{r test phylo signal}
+# /!\ need tmp_heatmap from {r write tree: heatmap OTU estimates, comparison with control}
+
+library(phytools)
+
+# tree
+tmp_ps = ps_16S_fltr
+tmp_tree = phy_tree(tmp_ps)
+
+# loop
+tmp_loop_df <- tibble()
+tmp_loop_df_lambda <- tibble()
+tmp_name_ttt <- colnames(tmp_heatmap)[-1]
+for (tmp_i in tmp_name_ttt) {
+  
+  # trait
+  tmp_trait = unlist(tmp_heatmap[,tmp_i])
+  names(tmp_trait) <- tmp_heatmap$OTU
+  
+  # phylo signal
+  tmp_lambda <- phytools::phylosig(tmp_tree,tmp_trait,method = "lambda",test = T,nsim = 999)
+  tmp_K <- phytools::phylosig(tmp_tree,tmp_trait,method = "K",test = T,nsim = 999)
+  
+  # extract loop data
+  tmp <- tibble("treatment"=tmp_i,
+                "method"=c("lambda","K"),
+                "phylo_sig"=c(tmp_lambda$lambda,tmp_K$K),
+                "pval"=c(tmp_lambda$P,tmp_K$P))
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  
+  # etract lmbda data
+  tmp <- tibble("treatment"=tmp_i,
+                "lambda"=tmp_lambda$lambda,
+                "LR"=2*(tmp_lambda$logL- tmp_lambda$logL0),
+                "pval"=tmp_lambda$P)
+  tmp_loop_df_lambda <- rbind(tmp_loop_df_lambda,tmp)
+  
+}
+
+# pval adjust
+tmp_loop_df[,"pval_adjust"] <- tmp_loop_df$pval * nrow(tmp_loop_df)
+tmp_loop_df[,"asterisk"] <- ifelse(tmp_loop_df$pval_adjust <= 0.05,"*","")
+tmp_loop_df_lambda[,"pval_adjust"] <- tmp_loop_df_lambda$pval * nrow(tmp_loop_df_lambda)
+tmp_loop_df_lambda[,"asterisk"] <- ifelse(tmp_loop_df_lambda$pval_adjust >= 0.05,"","*")
+
+
+# plot
+tmp_loop_df$treatment <- factor(tmp_loop_df$treatment,levels = rev(colnames(tmp_heatmap)[-1]))
+
+ggplot(tmp_loop_df) +
+ aes(x = treatment, y = phylo_sig, fill = method) +
+ geom_col(position = position_dodge(preserve = "single")) +
+ scale_fill_manual(values = c("#999999","#333333")) +
+ coord_flip() +
+ theme_light()
+
+# extract lambda data
+write.csv(tmp_loop_df_lambda,"C:/Users/srhuet/Downloads/tmp_phylosig.csv",quote = F,row.names = F)
+
+
+```
+
+
+## explore
+
+```{r nb OTUs up and down}
+
+tmp_df = stat_q2_otu_comparison_sum_w0 %>% filter(pval_adjust <= 0.05)
+
+# up /!\ estimates <0
+## nb comp up = 178
+nrow(tmp_df[tmp_df$estimate <0,])
+### nb OTUs
+length(unique(tmp_df$OTU[tmp_df$estimate <0]))
+### nb of ttt by OTU
+tmp = tmp_df[tmp_df$estimate <0,] %>%
+  dplyr::group_by(OTU) %>%
+  dplyr::summarise(treatment = n())
+mean(tmp$treatment)
+length(tmp$OTU[tmp$treatment >= 6])
+
+# down /!\ estimates >0
+## nb comp down = 294
+nrow(tmp_df[tmp_df$estimate >0,])
+### nb OTUs
+length(unique(tmp_df$OTU[tmp_df$estimate >0]))
+### nb of ttt by OTU
+tmp = tmp_df[tmp_df$estimate >0,] %>%
+  dplyr::group_by(OTU) %>%
+  dplyr::summarise(treatment = n())
+mean(tmp$treatment)
+length(tmp$OTU[tmp$treatment >= 6])
+
+```
+
+```{r nb OTUs by ttt}
+
+tmp_df = stat_q2_otu_comparison_sum_w0 %>%
+  filter(pval_adjust <= 0.05)
+
+# up /!\ estimates <0
+tmp_df[,"sign_comp"] <- ifelse(tmp_df$estimate <0,"up","down")
+
+# nb OTUs by ttt
+tmp_df <- tmp_df%>%
+  dplyr::group_by(g2,sign_comp) %>%
+  dplyr::summarise(nb_OTUs=n())
+tmp_df
+
+# plot
+
+## factor ordering and colors
+tmp_df$g2 <- factor(tmp_df$g2,
+                     levels = rev(sort(unique(tmp_df$g2))))
+tmp_df$sign_comp <- factor(tmp_df$sign_comp,levels = c("up","down"))
+tmp_colors <- c("#FF3366","#3399FF")
+
+ggplot(tmp_df) +
+  aes(x = g2, y = nb_OTUs, fill = sign_comp) +
+  geom_col() +
+  scale_fill_manual(values = tmp_colors) +
+  coord_flip() +
+  theme_light() +
+  facet_wrap(vars(sign_comp))
+
+
+# diff between up and down by ttt
+tmp_df1 <- tmp_df %>% pivot_wider(names_from = sign_comp,values_from = nb_OTUs)
+tmp_df1[,"total_nb_OTUs"] <- tmp_df1$up + tmp_df1$down
+
+
+```
+
+```{r nb OTUs up and down by taxo}
+
+# subset signif comp
+tmp_df = stat_q2_otu_comparison_sum_w0[stat_q2_otu_comparison_sum_w0$pval_adjust <= 0.05,]
+
+# sign of the comparison
+tmp_df[,"sign_comp"] <- ifelse(tmp_df$estimate <0,"up","down") # /!\ estimates <0 is up
+
+# add taxo
+tmp_df <- left_join(tmp_df,taxtab[,c("OTU","taxa")],by="OTU")
+
+# summarise nb comp by taxa
+tmp_df1 <- tmp_df %>%
+  dplyr::group_by(taxa,sign_comp) %>%
+  dplyr::summarise(nb_comp = n())
+
+# add empty taxa
+tmp <- tibble("taxa" = setdiff(unique(taxtab$taxa),unique(tmp_df$taxa)),
+              "sign_comp" = c("up","down"),
+              "nb_comp" = 0)
+tmp_df1 <- rbind(tmp_df1,tmp)
+
+# plot
+## factor ordering and colors
+tmp_df1$sign_comp <- factor(tmp_df1$sign_comp,levels = c("up","down"))
+tmp_df1$taxa <- factor(tmp_df1$taxa,levels = rev(levels(reorder(taxtab$taxa,taxtab$order))))
+tmp_colors <- c("#3399FF","#FF3366")
+
+ggplot(tmp_df1) +
+  aes(x = taxa, y = nb_comp, fill = sign_comp) +
+  geom_col() +
+  scale_fill_manual(values = tmp_colors) +
+  coord_flip() +
+  theme_light() +
+  facet_wrap(vars(sign_comp))
+
+
+```
+
+
+old versions: 
+
+```{r global up and down v0}
+# /!\ need tmp_ps and tmp_data from {r write tree: heatmap OTU estimates, comparison with control}
+
+# wrangle data
+tmp_df = tibble("OTU"=tmp_data$OTU,
+                "treatment"=tmp_data$signif_comp,
+                "estimate"=tmp_data$heatmap)
+## add taxo
+tmp_df <- left_join(tmp_df,taxtab[,c("OTU","taxa")],by="OTU")
+## add compo, div, dens
+tmp = unlist(strsplit(as.character(tmp_df$treatment),"_"))
+tmp_df[,"compo"] <- tmp[seq(1,length(tmp),by=2)]
+tmp = unlist(strsplit(tmp[seq(2,length(tmp),by=2)],"d"))
+tmp_df[,"div"] <- tmp[seq(1,length(tmp),by=2)]
+tmp_df[,"dens"] <- paste0("d",tmp[seq(2,length(tmp),by=2)])
+## add abundance
+tmp_melt = psmelt(tmp_ps)
+tmp_abund = tmp_melt %>% 
+  dplyr::group_by(OTU,treatment) %>% 
+  dplyr::summarise(Abundance=sum(Abundance))
+## calculate abund difference with the control
+tmp_abund["comp_C"] <- 0
+for (i in tmp_abund$OTU) {
+  # mean abundance C
+  tmp_abund_C = mean(tmp_abund$Abundance[tmp_abund$treatment == "C" &
+                                           tmp_abund$OTU == i])
+  # diff abund
+  tmp_abund$comp_C[tmp_abund$OTU == i] <- tmp_abund$Abundance[tmp_abund$OTU == i] /tmp_abund_C
+}
+
+tmp_df <- left_join(tmp_df,tmp_abund,by=c("OTU","treatment"))
+
+# explore
+
+## up
+### nb OTUs
+length(unique(tmp_df$OTU[tmp_df$estimate >0]))
+### nb of ttt by OTU
+tmp = tmp_df[tmp_df$estimate >0,] %>%
+  dplyr::group_by(OTU) %>%
+  dplyr::summarise(treatment = n())
+mean(tmp$treatment)
+length(tmp$OTU[tmp$treatment >= 6])
+### mean estimate
+mean(tmp_df$comp_C[tmp_df$estimate >0])
+
+## mean down
+### nb OTUs
+length(unique(tmp_df$OTU[tmp_df$estimate <0]))
+### nb of ttt by OTU
+tmp = tmp_df[tmp_df$estimate <0,] %>%
+  dplyr::group_by(OTU) %>%
+  dplyr::summarise(treatment = n())
+mean(tmp$treatment)
+length(tmp$OTU[tmp$treatment >= 6])
+### mean estimate
+1-mean(tmp_df$comp_C[tmp_df$estimate <0])
+
+## sum estimates !=0 by ttt
+tmp_sum = tmp_df[tmp_df$estimate >0,] %>%
+  group_by(dens) %>% 
+  summarise(otu=length(unique(OTU)),sum=sum(estimate!=0),mean=mean(Abundance),mean_C=mean(comp_C))
+tmp_sum
+
+```
+
+
+```{r explore results by taxo}
+
+# by taxa
+#tmp_taxa = "Alphaproteobacteria" # Alphaproteobacteria | Firmicutes
+#tmp_OTUs = tmp_taxtab$OTU[tmp_taxtab$taxa == tmp_taxa]
+
+# by genus
+#tmp_OTUs = tmp_taxtab$OTU[tmp_taxtab$Genus == "Pseudomonas"]
+
+# by otu
+#tmp_OTUs = c(52,128,56220,4225,94) # firmicutes with var2
+#tmp_OTUs = c(2352,17,12250,5544,17138) # massilia
+#tmp_OTUs = c(39431,25822,1) # pseudomonas impacted mostly by compo
+#tmp_OTUs = c(219,26710,38,23709) # stenotrophomonas
+#tmp_OTUs = c(1,17,46,24,26,3,4,28,131,5,6,10407,23) # most abundant OTUs
+#tmp_OTUs = c(2390,10847,45,60945,5733,53752,167,227,3075) # alphaprot in network
+
+#tmp_OTUs <- paste0("OTU-",tmp_OTUs)
+
+# OTUs in susp (cf. 1.3.Suspension_analysis)
+tmp_OTUs = tmp_OTUs_in_susp
+
+# wrangle data
+tmp_df = tibble("OTU"=tmp_data$OTU,
+                "treatment"=tmp_data$signif_comp,
+                "estimate"=tmp_data$heatmap)
+#tmp_df <- pivot_longer(tmp_df,cols = !OTU,names_to = "treatment",values_to = "estimate")
+tmp_df <- left_join(tmp_df,tmp_taxtab[,c("OTU","taxa")],by="OTU")
+tmp_df <- tmp_df[tmp_df$OTU %in% tmp_OTUs,]
+## add compo, div, dens
+tmp = unlist(strsplit(as.character(tmp_df$treatment),"_"))
+tmp_df[,"compo"] <- tmp[seq(1,length(tmp),by=2)]
+tmp = unlist(strsplit(tmp[seq(2,length(tmp),by=2)],"d"))
+tmp_df[,"div"] <- tmp[seq(1,length(tmp),by=2)]
+tmp_df[,"dens"] <- paste0("d",tmp[seq(2,length(tmp),by=2)])
+
+# add abundance
+tmp_melt = psmelt(ps_16S_fltr)
+tmp_abund = tmp_melt %>% group_by(OTU,treatment) %>% summarise(Abundance=sum(Abundance))
+## calculate abund difference with the control
+tmp_abund["comp_C"] <- 0
+for (i in tmp_abund$OTU) {
+  
+  # mean abundance C
+  tmp_abund_C = mean(tmp_abund$Abundance[tmp_abund$treatment == "C" &
+                                           tmp_abund$OTU == i])
+  
+  # diff abund
+  tmp_abund$comp_C[tmp_abund$OTU == i] <- tmp_abund$Abundance[tmp_abund$OTU == i] /tmp_abund_C
+  
+}
+
+
+tmp_df <- left_join(tmp_df,tmp_abund,by=c("OTU","treatment"))
+
+# sum estimates !=0 by ttt
+tmp_sum = tmp_df[tmp_df$estimate >0,] %>%
+  group_by(dens) %>% 
+  summarise(otu=length(unique(OTU)),sum=sum(estimate!=0),mean=mean(Abundance),mean_C=mean(comp_C))
+tmp_sum
+
+(1- tmp_sum$mean_C)*100
+
+```
+
+```{r explore results by abundance in microcosm}
+
+tmp_abund <- tibble("OTU" = taxa_names(tmp_ps),
+                    "sum_abund" = taxa_sums(tmp_ps))
+
+tmp_data_abund <- left_join(tmp_data,tmp_abund,by="OTU")
+
+# plot heatmap
+p <- ggplot(tmp_data_abund) +
+  aes(x = reorder(OTU,desc(sum_abund)),
+      y = signif_comp, fill = heatmap) +
+  geom_tile(size = 1.5) +
+  scale_fill_gradient2(low = "#FF3366",mid = "#ffffff",high = "#3399FF",midpoint = 0,) +
+  theme_bw() +
+  labs(y = "Model estimates")+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        panel.grid.major.x = element_line(color = "white", size = 0.8))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+p
+
+# plot curve nb ttt signif
+tmp_data_abund[,"nb_ttt_impact"] <- ifelse(tmp_data_abund$heatmap ==0, 0, 1)
+ggplot(tmp_data_abund) +
+  aes(x = reorder(OTU,desc(sum_abund)),
+      y = nb_ttt_impact) +
+  geom_col(fill = "#112446") +
+  theme_bw() +
+  labs(y = "Model estimates")+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        panel.grid.major.x = element_line(color = "white", size = 0.8))+
+  geom_vline(xintercept = seq(10.5,ntaxa(tmp_ps),10),
+             lwd=0.1, color = "#cccccc")
+
+```
+
+```{r explore results by total abundance in susp}
+
+tmp_ps = ps_16S_susp_manip
+tmp_abund <- tibble("OTU" = taxa_names(tmp_ps),
+                    "sum_abund" = taxa_sums(tmp_ps))
+tmp_abund[,"rel_ab"] = tmp_abund$sum_abund / sum(tmp_abund$sum_abund)
+
+
+tmp_abund_susp <- tibble("OTU" = taxa_names(ps_16S_susp),
+                         "sum_abund_susp" = taxa_sums(ps_16S_susp))
+tmp_abund_susp[,"rel_ab_susp"] = tmp_abund_susp$sum_abund_susp / sum(tmp_abund_susp$sum_abund_susp)
+
+
+# subset with OTU in most abund
+tmp_abund <- left_join(tmp_abund,tmp_abund_susp)
+# join data
+tmp_data_abund <- left_join(tmp_data,tmp_abund,by="OTU")
+
+
+```
+
+How many OTU in susp are psotovely affected in coalescence
+
+```{r}
+
+# OTU in microcosm
+tmp_otu_microc = taxa_names(ps_16S_fltr)
+
+# OTU up
+tmp_otu_up = unique(tmp_data$OTU[tmp_data$heatmap >0])
+
+# OTU in manip susp
+tmp_ps=ps_16S_susp_manip
+tmp_otu_susp = taxa_names(tmp_ps)
+
+# intersect OTU
+tmp_otu_susp_mic = intersect(tmp_otu_susp,tmp_otu_microc)
+tmp_otu_susp_mic_up = intersect(tmp_otu_susp_mic,tmp_otu_up)
+
+```
+
+
+```{r explore results by abundance in each susp}
+
+tmp_abund <- tibble("OTU" = taxa_names(tmp_ps),
+                    "sum_abund" = taxa_sums(tmp_ps))
+tmp_abund[,"rel_ab"] = tmp_abund$sum_abund / sum(tmp_abund$sum_abund)
+
+# OTU abund in each susp
+tmp_ps_susp <- merge_samples(ps_16S_susp,ps_16S_susp@sam_data$treatment)
+tmp_ps_susp <- transform_sample_counts(tmp_ps_susp, fun = function(x) x/sum(x))
+tmp_ps_melt = psmelt(tmp_ps_susp)
+tmp_abund_susp <- tibble("OTU" = tmp_ps_melt$OTU,
+                         "susp"= tmp_ps_melt$Sample,
+                         "rel_ab_susp" = tmp_ps_melt$Abundance)
+
+
+
+# subset with OTU in most abund
+tmp_abund <- left_join(tmp_abund,tmp_abund_susp)
+# join data
+tmp_data_abund <- left_join(tmp_data,tmp_abund,by="OTU")
+
+
+```
+
+# q1 & q2 : compare results for OTUs
+
+
+```{r q2 by q1 up/down}
+
+# which OTUs are affected by coal
+tmp_df1 = stat_q2_otu_comparison_sum_w0 %>% filter(pval_adjust <= 0.05)
+tmp_df1[,"sign_comp"] <- ifelse(tmp_df1$estimate <0,"up","down") # /!\ up = estimates <0
+tmp_df1 <- tmp_df1[,colnames(tmp_df1)[c(1,9,12)]]
+
+# which OTUs have signif fval
+tmp_df2 <- stat_q1_otu_rel %>% filter(pval_adjust <= 0.05)
+tmp_df2 <- tmp_df2[,c("OTU","var","var_type","rel_fval")]
+
+# how many sign_comp by var
+tmp_df <- left_join(tmp_df1,tmp_df2,by = "OTU")
+tmp_df <- na.omit(tmp_df)
+
+# plot
+## factor ordering and colors
+tmp_df$var <- factor(tmp_df$var,
+                     levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+tmp_df$var_type <- factor(tmp_df$var_type,
+                     levels = c("main","double","triple"))
+tmp_df$sign_comp <- factor(tmp_df$sign_comp,levels = c("up","down"))
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+## plot relative property effects
+tmp_df %>%
+  dplyr::group_by(sign_comp,var,var_type) %>%
+  dplyr::summarise(mean_rfval = mean(rel_fval)) %>%
+  ggplot() +
+  aes(x= sign_comp, y= mean_rfval, fill= var)+
+  geom_col(position = "fill")+
+  scale_fill_manual(values = tmp_colors)+
+  coord_flip()+
+  facet_grid(sign_comp~var_type,
+             scales = "free",
+             switch = "y", 
+             space = "free_y") +
+  theme_classic() +
+    theme(strip.text = element_text(face="bold", size=10),
+        strip.background = element_rect(fill="#ffffff", colour="#ffffff",size=1.5),
+        strip.placement = "outside")
+
+
+
+# test diff for each var between up / down
+# linear model
+tmp_lm = lm(tmp_df$rel_fval ~ tmp_df$var*tmp_df$sign_comp, na.action = na.omit )
+summary(tmp_lm)
+# anova
+tmp_aov = aov(tmp_lm)
+summary(tmp_aov)
+
+# post hoc Tukey test
+library(agricolae)
+tmp_comp <- HSD.test(tmp_aov,c("tmp_df$var","tmp_df$sign_comp"),alpha = 0.05,group = T,console = T)
+# tibble with statistical groups
+tmp_stat = tibble("groups"=rownames(tmp_comp[["groups"]]),
+                  "mean"=tmp_comp[["groups"]][["tmp_df$rel_fval"]],
+                  "stat_groups"=as.character(tmp_comp[["groups"]][["groups"]]))
+tmp_stat
+# OR
+tmp_emmeans = emmeans(tmp_lm,~c(var,sign_comp))
+test(pairs(tmp_emmeans, by = "var"), by = NULL, adjust = "bonferroni") # see adjust method?
+
+
+```
+
+
+```{r q2 by treatment}
+
+# which OTUs are affected by coal
+tmp_df1 = stat_q2_otu_comparison_sum_w0 %>% filter(pval_adjust <= 0.05)
+tmp_df1[,"sign_comp"] <- ifelse(tmp_df1$estimate <0,"up","down") # /!\ up = estimates <0
+tmp_df1 <- tmp_df1[,colnames(tmp_df1)[c(1,9,12)]]
+
+# which OTUs have signif fval
+tmp_df2 <- stat_q1_otu_rel %>% filter(pval_adjust <= 0.05)
+tmp_df2 <- tmp_df2[,c("OTU","var","var_type","rel_fval")]
+
+# how many sign_comp by var
+tmp_df <- left_join(tmp_df1,tmp_df2,by = "OTU")
+tmp_df <- na.omit(tmp_df)
+
+tmp_df <- tmp_df %>%
+  dplyr::group_by(g2,var,sign_comp) %>%
+  dplyr::summarise(nb_comp = n())
+tmp_df
+
+# add nb OTUs by sign_comp by ttt
+tmp_df3 <- tmp_df1 %>%
+  dplyr::group_by(g2,sign_comp) %>%
+  dplyr::summarise(nb_OTUs_heatmap = n()) # divide by nb var to have total nb of OTUs
+#  dplyr::summarise(nb_OTUs_heatmap = n()/length(unique(tmp_df$var))) # divide by nb var to have total nb of OTUs
+#tmp_df <- left_join(tmp_df,tmp_df3,by = c("g2", "sign_comp"))
+
+# add nb OTUs by sign_comp by ttt affected by factor
+tmp_df4 <- tmp_df1 %>% 
+  filter(OTU %in% unique(tmp_df2$OTU)) %>%
+  dplyr::group_by(g2,sign_comp) %>%
+  dplyr::summarise(nb_OTUs_fval = n()) # divided by nb var to have total nb of OTUs
+#  dplyr::summarise(nb_OTUs_fval = n()/length(unique(tmp_df$var))) # divided by nb var to have total nb of OTUs
+#tmp_df <- left_join(tmp_df,tmp_df4,by = c("g2", "sign_comp"))
+
+# plot
+## factor ordering and colors
+tmp_df3$g2 <- factor(tmp_df3$g2,
+                     levels = rev(sort(unique(tmp_df3$g2))))
+tmp_df4$sign_comp <- factor(tmp_df4$sign_comp,levels = c("up","down"))
+tmp_df$var <- factor(tmp_df$var,
+                     levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+tmp_colors <- rev(c("#9b2226","#db912b","#005f73","#bb3e03","#ecba53","#0a9396","#94d2bd"))
+
+
+ggplot() +
+  geom_col(data = tmp_df3, aes(x = g2,y=nb_OTUs_heatmap),fill="#cccccc") +
+  geom_col(data = tmp_df4, aes(x = g2,y=nb_OTUs_fval),fill="#999999") +
+  geom_col(data = tmp_df,aes(x = g2,y=nb_comp, fill = var),position = "dodge") +
+  scale_fill_manual(values = tmp_colors) +
+  coord_flip() +
+  theme_light() +
+  facet_wrap(vars(sign_comp))
+
+# check
+tmp_df[tmp_df$g2 == "MAC_a1d1" & tmp_df$var == "d",]
+tmp_OTUs1 = tmp_df1$OTU[tmp_df1$g2 == "MAC_a1d1" & tmp_df1$sign_comp == "down"]
+tmp_OTUs2 = tmp_df2$OTU[tmp_df2$var == "d"]
+tmp_OTUs3 = unique(tmp_df2$OTU)
+length(intersect(tmp_OTUs1,tmp_OTUs3))
+
+```
+
+
+
+# Bin
+
+```{r plot F value: facet grid with strip labeller}
+
+tmp_data = stat_q1_metric
+
+# set up variables and metrics
+tmp_var = tibble("var"=unique(tmp_data$var),
+                 "var_order"=c(2,1,3,4,6,5,7,8),
+                 "var_type"=rep(c("var1","var2","var3","resid"),
+                                c(3,3,1,1)))
+## put metric order
+tmp_metric = tibble("metric"=c("observed_species","PD_whole_tree","simpson_reciprocal",
+                               "wunifrac"),
+                    "metric_order"=c(1:4),
+                    "metric_type"=rep(c("alpha","beta"),c(3,1)))
+# wrangle data
+tmp_data <- left_join(tmp_data,tmp_metric)
+tmp_data <- left_join(tmp_data,tmp_var)
+# select data
+tmp_data <- tmp_data[tmp_data$var %in% unique(tmp_data$var[tmp_data$pval_adjust <= 0.05]),]
+tmp_data <- tmp_data[tmp_data$metric %in% tmp_metric$metric,]
+
+#####
+# plot significant variables
+## select colors
+tmp_color <- tibble("color"=Color_sets$color[Color_sets$set=="7c"],
+                    "var_order"=Color_sets$order[Color_sets$set=="7c"])
+## add color and order 
+tmp_data <- left_join(tmp_data,tmp_color, by = "var_order")
+
+## strip names
+### metric_type
+tmp_labs_metric <- c("Beta diversity","Alpha diversity")
+names(tmp_labs_metric) <- unique(tmp_data$metric_type)
+
+### var_type
+tmp_labs_var <- c("Main effects","Doucle interaction effects")
+names(tmp_labs_var) <- unique(tmp_data$var_type)
+
+## plot
+p <- ggplot(tmp_data, aes(x=reorder(metric,desc(metric_order)),
+                          y=signif,
+                          fill= reorder(var,var_order)))+
+  geom_bar(stat = "identity", position = "fill")+
+  theme_classic()+
+  scale_fill_manual(values = tmp_color$color)+ 
+  labs(x="Diversity metric", y= paste0("\n","F value proportion"),
+       #title = "Variable F-values by diversity metric",
+       color = "#333333")+
+  theme(title = element_text(face="bold", size=12),
+        legend.position = "none",
+        axis.title.x = element_text(face="bold", size=10), 
+        axis.text.x  = element_text(vjust=0.5, size=8,angle = 0),
+        axis.title.y = element_text(face="bold", size=10), 
+        axis.text.y  = element_text(vjust=0.5, size=8),
+        strip.text = element_text(face="bold", size=10),
+        strip.background = element_rect(fill="#ffffff", colour="#ffffff",size=1.5),
+        strip.placement = "outside")+
+  coord_flip()+
+  facet_grid(metric_type~var_type,
+             scales = "free",
+             #labeller = labeller(metric_type = tmp_labs_metric,
+            #                     var_type = tmp_labs_var),
+             switch = "y", 
+             space = "free_y")
+
+p
+
+fig_div[["Fvalue_div_metrics"]] <- p
+
+# F val proportion values
+## "observed_species", "PD_whole_tree", "simpson_reciprocal" "w.unifrac"
+tmp_index = "wunifrac"
+tmp_df = tmp_data[tmp_data$metric == tmp_index & tmp_data$var_type == "var1",c("var","signif")]
+tmp_df[,"proportion"] <- tmp_df$signif / sum(tmp_df$signif)*100
+tmp_df
+
+```
+
+
+
+
+

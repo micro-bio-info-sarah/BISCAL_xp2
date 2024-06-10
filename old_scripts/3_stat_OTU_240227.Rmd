@@ -1,0 +1,1850 @@
+---
+title: "Statistical Analysis of OTUs"
+author: "Sarah HUET"
+date: '2023-05-17'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(emmeans)
+library(gdata)
+
+
+
+# load work space data
+load("Data/R_data.RData")
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# Filter most abundant OTUs
+
+Statistical analyses of OTUs abundances were focused on the most abundant OTUs in microcosms. Briefly, low-abundance OTUs were filtered out of the count table by keeping OTUs that (i) represented > 0.1% of the sequences in at least ten samples and (ii) were found in at least 60% of replicates for any given treatment, which resulted in 258 dominant OTUs. These dominant OTUs were used to build pruned trees using the ape package (Paradis & Schliep, 2019) and were visualized using the Interactive Tree of Life (iTOL) webserver (Letunic & Bork, 2021).
+
+```{r relative_abundance_filter}
+
+tmp_ps = ps_16S_micro
+# calculate OTU relative abundance
+tmp_otu_df <- as.data.frame(otu_table(tmp_ps))
+tmp_otu_relab <- apply(tmp_otu_df, 2, FUN=function(x) x/sum(x)*100)
+# sum for each OTU the number of samples where OTU relative abundance >= threshold
+tmp_relab_thld = 0.1
+tmp_otu_relab_thld <- apply(tmp_otu_relab, 1, FUN=function(x) sum(x>=(tmp_relab_thld)))
+# select OTUs which relative abundance is >= threshold in >= ten samples
+tmp_nb_sample = 10
+tmp_otus_fltr1 <- rownames(tmp_otu_df[which(tmp_otu_relab_thld >= tmp_nb_sample),])
+# subset selected OTUs
+tmp_ps_fltr1 <- prune_taxa(taxa_names(tmp_ps) %in% tmp_otus_fltr1, tmp_ps)
+
+# final tmp_ps_fltr1: 121 samples & 259 OTUs
+
+```
+
+```{r prevalence_filter}
+
+tmp_ps = tmp_ps_fltr1
+# calculate OTUs prevalence (i.e., presence in samples for each treatment)
+tmp_otu_df <- psmelt(tmp_ps) %>%
+  select(OTU,sample,Abundance,treatment)
+tmp_otu_df[,"presence"] <- ifelse(tmp_otu_df$Abundance >0,1,0)
+tmp_otu_prev <- tmp_otu_df %>%
+  dplyr::group_by(OTU,treatment) %>%
+  dplyr::summarise(presence_sum = sum(presence),
+                   nb_sample = n()) %>%
+  ungroup()
+tmp_otu_prev[,"prevalence"] <- tmp_otu_prev$presence_sum / tmp_otu_prev$nb_sample
+# select OTUs >= prevalence threshold
+tmp_prev_thld = 0.6
+tmp_otus_fltr2 <- unique(tmp_otu_prev$OTU[tmp_otu_prev$prevalence >= tmp_prev_thld])
+# subset selected OTUs
+ps_16S_fltr <- prune_taxa(taxa_names(tmp_ps) %in% tmp_otus_fltr2, tmp_ps)
+
+# final ps_16S_fltr: 121 samples & 258 OTUs
+
+```
+
+# Effect of community properties
+
+To estimate the effect of the community properties on each OTU abundance, we calculated the property F-values using ANOVAs based on the following generalized linear mixed model (Equation 4). Considering that an OTU of abundance Y, in any j replicates of any coalescence treatment with a diversity, b composition and d density, follows a Poisson distribution of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, we used the following model:
+
+$$\log(\Lambda_{abdj}) = o_{abdj} + \mu + \alpha_a + \beta_b + \delta_d + (\alpha\beta_{ab}) + (\alpha\delta_{ad}) + (\beta\delta_{bd}) + (\alpha\beta\delta_{abd}) + Z_{abdj},\ Z_{{abdj}_{1 \le j \le 10}} \ iid \sim \mathcal{N} (0,\sigma^2) \ (4)$$
+
+where $a=\left\{1,2\right\}$ represents the diversity, $b=\left\{1,2\right\}$ represents the composition, $d=\left\{1,2,3\right\}$ represents the density, $j=\left\{1,\ldots,10\right\}$ represents the replicates, $\alpha$, $\beta$, $\delta$ are the fixed effects of the diversity, composition and density of the manipulated communities, respectively, and their interactions, o is the offset for each sample calculated as the log of the sample read sum and Z is the random sampling effect modelling the data overdispersion. The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Each model was tested against a null model (i.e., a model without the effect of the treatments) using likelihood-ratio test and p-value were corrected using a Bonferroni correction (adjusted Chi square p-value $\le$ 0.05).
+
+```{r loop}
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+
+# define model variables
+## treatments
+a = tmp_ps@sam_data$incub
+b = tmp_ps@sam_data$broth
+d = tmp_ps@sam_data$density
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z <- tmp_ps@sam_data$sample
+
+# global df
+tmp_global = tibble()
+
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  # models
+  glmer3 <- glmer(y ~ a*b*d + (1 | as.factor(z)),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+  
+  # LRT
+  LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+  
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # Percentage of variance explained
+    ## calculate sum of squares
+    tmp_aov = anova(glmer3)
+    tmp_aov = tibble("var"= rownames(tmp_aov),tmp_aov)
+    ## calculate percentage of variance explained
+    tmp_aov[,"pct_expl"] = tmp_aov$`Sum Sq` / sum(tmp_aov$`Sum Sq`) *100
+  
+    
+    # F values
+    # Calculate model values
+    tmp_obs = y
+    tmp_predict = predict(glmer3)
+    ##  Calculate residual sum of squares (RSS)
+    tmp_RSS = sum((tmp_obs - tmp_predict)^2)
+    ## Calculate residual mean of square (RMS)
+    tmp_Rdf = length(y)-sum(tmp_aov$npar)-1
+    tmp_RMS = tmp_RSS / tmp_Rdf
+    ## Calculate F-value (the one from anova function is not divided by MSE here)
+    tmp_aov$Fval <- tmp_aov$`Mean Sq`/tmp_RMS
+    ## add residuals
+    tmp_aov <- rbind(tmp_aov,
+                      tibble("var"="Residuals","npar"=tmp_Rdf,
+                             "Sum Sq"=tmp_RSS,"Mean Sq"=tmp_RMS,
+                             "F value"=NA,"pct_expl"=0, "Fval"=NA))
+    # calculate CHisq pvalue
+    tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+    tmp_pval = tibble("var"=rownames(tmp_pval),tmp_pval)
+    # join tibbles
+    tmp_val = left_join(tmp_aov,tmp_pval)
+    tmp_val = tibble("OTU"= rep(tmp_OTU,nrow(tmp_val)),tmp_val)
+  } else {
+    tmp_val = c("a","b","d","a:b","a:d","b:d","a:b:d","Residuals")
+    tmp_val = tibble("OTU"= tmp_OTU,"var"=tmp_val,
+                     "npar"=NA,"Sum Sq"=NA,"Mean Sq"=NA,"F value"=NA,
+                     "pct_expl"=0,"Fval"=0,"Chisq"=NA,"Df"=NA,"Pr(>Chisq)"=1)
+  }
+  
+  # global df
+  tmp_global = rbind(tmp_global,tmp_val)
+  
+  print(tmp_i)
+  
+  rm(y,glmer3,glmer0,LRT,tmp_LRT_pchisq,
+     tmp_aov,tmp_pval,tmp_val)
+
+}
+
+# bonferroni p-val correction: 258 OTUs * (3 factor main effects + 4 factor interactions)
+tmp_global[,"bonferroni"] <- p.adjust(tmp_global$`Pr(>Chisq)`,method = "bonferroni")
+# F values for significant variables
+tmp_global[,"sgnf_fval"] <- ifelse(tmp_global$bonferroni <= 0.05,tmp_global$Fval,0)
+# percentage of explained variance for significant variables
+tmp_global[,"sgnf_pct_expl"] <- ifelse(tmp_global$bonferroni <= 0.05,tmp_global$pct_expl,0)
+
+
+stat_otu_anova = tmp_global
+
+rm(b,a,d,o,z,y,glmer3,glmer0,LRT,tmp_LRT_pchisq,tmp_aov,tmp_pval,tmp_val)
+
+```
+
+```{r relative F_value}
+
+tmp = stat_otu_fval
+tmp[,"var_type"] <- ifelse(tmp$var %in% c("a","b","d"),"main",
+                           ifelse(tmp$var %in% c("b:a","a:d","b:d"),"double",
+                                  ifelse(tmp$var == "b:a:d","triple",
+                                         NA)))
+tmp[,"rel_fval"] <- ifelse(tmp$pval_adjust <= 0.05,tmp$Fval,NA)
+View(tmp)
+
+tmp <- tmp %>%
+  group_by(OTU,var_type) %>%
+  mutate(rel_fval = rel_fval/sum(rel_fval,na.rm = T))
+tmp$rel_fval <- ifelse(tmp$pval_adjust >0.05,0,tmp$rel_fval)
+
+stat_otu_fval_rel <- tmp
+
+```
+
+```{r write tree multibar: F_value of OTU significant variables}
+
+tmp_data = stat_otu_aov_o
+# subset data
+tmp_data <- tmp_data %>%
+  dplyr::filter(var != "Residuals" &
+                  pval_adjust <= 0.05)
+
+# select data
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "var"= tmp_data$var,
+                  "f_val"=tmp_data$rel_fval)
+
+# wrangle data
+tmp_data <- pivot_wider(tmp_data,names_from = var, values_from = f_val,values_fill = list(f_val = 0))
+tmp_data <- tmp_data[,c("OTU","a","b","d","b:a","a:d","b:d","b:a:d")]
+
+# add missing OTUs
+tmp <- tibble("OTU" = setdiff(taxa_names(ps_16S_fltr),tmp_data$OTU))
+for (tmp_i in colnames(tmp_data)[-1]) {tmp[,tmp_i] <- 0}
+tmp_data <- rbind(tmp_data,tmp)
+
+```
+
+```{r pct_expl_var manual1}
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+
+# define model variables
+## treatments
+a = tmp_ps@sam_data$incub
+b = tmp_ps@sam_data$broth
+d = tmp_ps@sam_data$density
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z <- tmp_ps@sam_data$sample
+
+# loop for models
+tmp_global = tibble()
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  #tmp_i = which(taxa_names(tmp_ps) == "OTU-45")
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  # models
+  glmer3 <- glmer(y ~ a*b*d + (1 | as.factor(z)),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+  
+  # LRT
+  LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+  
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # calculate CHisq pvalue
+    tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+    tmp_pval = tibble("var"=rownames(tmp_pval),tmp_pval)
+    
+    # Percentage of variance explained for significant variables
+    ## calculate the residual sum of squares
+    ### Calculate model values
+    tmp_predict = predict(glmer3)
+    ###  Calculate residual sum of squares (RSS)
+    tmp_SSr = sum((y - tmp_predict)^2)
+    
+    
+    ## calculate the sum of squares for each variable and their interactions
+    ### Step 1: Calculate the overall mean of the response variable (y), denoted as 'ȳ'
+    tmp_y_bar <- mean(y)
+    ### Step 2: For each group/category of the categorical variable, calculate the mean of the response variable within that group, denoted as 'ȳi'
+    ### Step 3: Calculate the deviation of each observation in a group from the mean of that group: Deviation = yi - ȳi
+    ### Step 4: Square each deviation to get the squared deviation: (Squared Deviation) = (yi - ȳi)^2
+    ### Step 5: Sum the squared deviations for each group to get the sum of squares for that categorical variable: SS = Σ((yi - ȳi)^2)
+    tmp_groups_a = unique(a)
+    tmp_SSa = 0
+    for (tmp_group in 1:length(tmp_groups_a)) {
+      tmp_group_y = y[which(a == tmp_groups_a[tmp_group])]
+      tmp_group_mean = mean(tmp_group_y)
+      tmp_group_sq_dev = (tmp_group_y - tmp_group_mean)^2
+      tmp_SSa = tmp_SSa + sum(tmp_group_sq_dev)
+    }
+    
+    # https://davidmlane.com/hyperstat/B91055.html
+    tmp_SSa = 0
+    tmp_SSEa= 0
+    for (tmp_group in 1:length(tmp_groups_a)) {
+      tmp_group_y = y[which(a == tmp_groups_a[tmp_group])]
+      tmp_group_mean = mean(tmp_group_y)
+      tmp_group_SS = length(tmp_group_y)* (tmp_group_mean - tmp_y_bar)^2
+      tmp_SSa = tmp_SSa + tmp_group_SS
+      tmp_group_sq_dev = (tmp_group_y - tmp_group_mean)^2
+      tmp_SSEa = tmp_SSEa + sum(tmp_group_sq_dev)
+    }
+    
+    
+    
+    
+    tmp_groups_b = unique(b)
+    tmp_SSb = 0
+    for (tmp_group in 1:length(tmp_groups_b)) {
+      tmp_group_y = y[which(b == tmp_groups_b[tmp_group])]
+      tmp_group_mean = mean(tmp_group_y)
+      tmp_group_sq_dev = (tmp_group_y - tmp_group_mean)^2
+      tmp_SSb = tmp_SSb + sum(tmp_group_sq_dev)
+    }
+    tmp_groups_d = unique(d)
+    tmp_SSd = 0
+    for (tmp_group in 1:length(tmp_groups_d)) {
+      tmp_group_y = y[which(d == tmp_groups_d[tmp_group])]
+      tmp_group_mean = mean(tmp_group_y)
+      tmp_group_sq_dev = (tmp_group_y - tmp_group_mean)^2
+      tmp_SSd = tmp_SSd + sum(tmp_group_sq_dev)
+    }
+    tmp_groups_ab = unique(paste0(a,b))
+    tmp_SSab = 0
+    for (tmp_group in 1:length(tmp_groups_ab)) {
+      tmp_group_y = y[which(paste0(a,b) == tmp_groups_ab[tmp_group])]
+      tmp_group_mean = mean(tmp_group_y)
+      tmp_group_sq_dev = (tmp_group_y - tmp_group_mean)^2
+      tmp_SSab = tmp_SSab + sum(tmp_group_sq_dev)
+    }
+    tmp_groups_ad = unique(paste0(a,d))
+    tmp_SSad = 0
+    for (tmp_group in 1:length(tmp_groups_ad)) {
+      tmp_group_y = y[which(paste0(a,d) == tmp_groups_ad[tmp_group])]
+      tmp_group_mean = mean(tmp_group_y)
+      tmp_group_sq_dev = (tmp_group_y - tmp_group_mean)^2
+      tmp_SSad = tmp_SSad + sum(tmp_group_sq_dev)
+    }
+    tmp_groups_bd = unique(paste0(b,d))
+    tmp_SSbd = 0
+    for (tmp_group in 1:length(tmp_groups_bd)) {
+      tmp_group_y = y[which(paste0(b,d) == tmp_groups_bd[tmp_group])]
+      tmp_group_mean = mean(tmp_group_y)
+      tmp_group_sq_dev = (tmp_group_y - tmp_group_mean)^2
+      tmp_SSbd = tmp_SSbd + sum(tmp_group_sq_dev)
+    }
+    tmp_groups_abd = unique(paste0(a,b,d))
+    tmp_SSabd = 0
+    for (tmp_group in 1:length(tmp_groups_abd)) {
+      tmp_group_y = y[which(paste0(a,b,d) == tmp_groups_abd[tmp_group])]
+      tmp_group_mean = mean(tmp_group_y)
+      tmp_group_sq_dev = (tmp_group_y - tmp_group_mean)^2
+      tmp_SSabd = tmp_SSabd + sum(tmp_group_sq_dev)
+    }
+    
+    # add the sum of squares in table
+    tmp_pval[,"SS"] <- c(tmp_SSEa+tmp_SSEb+tmp_SSEd+tmp_SSEab+tmp_SSEad+tmp_SSEbd+tmp_SSEabd,
+                         tmp_SSa,tmp_SSb,tmp_SSd,tmp_SSab,tmp_SSad,tmp_SSbd,tmp_SSabd)
+    # calculate percentage of variance explained
+    tmp_pval[,"pct_expl_sumSS"] = tmp_pval$SS /sum(tmp_pval$SS)*100
+    tmp_pval[,"pct_expl_sumSS.no.resid"] = tmp_pval$SS /sum(tmp_pval$SS[tmp_pval$var != "(Intercept)"])*100
+    
+    # add OTU name in table
+    tmp_val = tibble("OTU" = tmp_OTU,tmp_pval)
+    
+    
+  } else {
+    tmp_val = tibble("var" = c("(Intercept)","a","b","d","a:b","a:d","b:d","a:b:d"))
+    tmp_val = tibble("OTU"= tmp_OTU,tmp_val,"Chisq"=NA,"Df"=NA,"Pr(>Chisq)"=1,"bonferroni"=1,
+                     "SS"=NA,"pct_expl"=0)
+  }
+  
+  # global df
+  tmp_global = rbind(tmp_global,tmp_val)
+  
+  print(tmp_i)
+  
+  rm(y,glmer3,glmer0,LRT,tmp_LRT_pchisq,tmp_pval,tmp_val)
+
+}
+
+# bonferroni p-val correction: 258 OTUs * (3 factor main effects + 4 factor interactions)
+tmp_global[,"bonferroni"] <- p.adjust(tmp_global$`Pr(>Chisq)`,method = "bonferroni")
+# percentage of explained variance for significant variables
+tmp_global[,"sgnf_pct_expl"] <- ifelse(tmp_global$bonferroni <= 0.05 & tmp_global$var != "(Intercept)",
+                                       tmp_global$pct_expl,0)
+
+stat_otu_var = tmp_global
+
+rm(b,a,d,o,z,y,glmer3,glmer0,LRT)
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+https://davidmlane.com/hyperstat/effect_size.html
+
+```{r WIP pct_expl_var chi²}
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+
+# define model variables
+## treatments
+a = tmp_ps@sam_data$incub
+b = tmp_ps@sam_data$broth
+d = tmp_ps@sam_data$density
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z <- tmp_ps@sam_data$sample
+
+# loop for models
+tmp_global = tibble()
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  #tmp_i = which(taxa_names(tmp_ps) == "OTU-45")
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  # models
+  glmer3 <- glmer(y ~ a*b*d + (1 | as.factor(z)),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+  
+  # LRT
+  LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+  
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # calculate CHisq pvalue
+    tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+    tmp_pval = tibble("var"=rownames(tmp_pval),tmp_pval)
+    
+    # Percentage of variance explained for significant variables
+    ## calculte Pearson's correlation
+    tmp_pval[,"phi"] <- sqrt(tmp_pval$Chisq / length(y))
+    ## calculate percentage of variance explained
+    tmp_pval[,"pct_expl"] = tmp_pval$phi^2 *100
+    
+    # add OTU name in table
+    tmp_val = tibble("OTU" = tmp_OTU,tmp_pval)
+    
+    
+  } else {
+    tmp_val = tibble("var" = c("(Intercept)","a","b","d","a:b","a:d","b:d","a:b:d"))
+    tmp_val = tibble("OTU"= tmp_OTU,tmp_val,"Chisq"=NA,"Df"=NA,"Pr(>Chisq)"=1,"bonferroni"=1,
+                     "SS"=NA,"pct_expl"=0)
+  }
+  
+  # global df
+  tmp_global = rbind(tmp_global,tmp_val)
+  
+  print(tmp_i)
+  
+  rm(y,glmer3,glmer0,LRT,tmp_LRT_pchisq,tmp_pval,tmp_val)
+
+}
+
+# bonferroni p-val correction: 258 OTUs * (3 factor main effects + 4 factor interactions)
+tmp_global[,"bonferroni"] <- p.adjust(tmp_global$`Pr(>Chisq)`,method = "bonferroni")
+# percentage of explained variance for significant variables
+tmp_global[,"sgnf_pct_expl"] <- ifelse(tmp_global$bonferroni <= 0.05 & tmp_global$var != "(Intercept)",
+                                       tmp_global$pct_expl,0)
+
+#stat_otu_var = tmp_global
+
+rm(b,a,d,o,z,y,glmer3,glmer0,LRT)
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+```{r pct_expl_var manual2}
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+
+# define model variables
+## treatments
+a = tmp_ps@sam_data$incub
+b = tmp_ps@sam_data$broth
+d = tmp_ps@sam_data$density
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z <- tmp_ps@sam_data$sample
+
+# loop for models
+tmp_global = tibble()
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  #tmp_i = which(taxa_names(tmp_ps) == "OTU-45")
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  # models
+  glmer3 <- glmer(y ~ a*b*d + (1 | as.factor(z)),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+  
+  # LRT
+  LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+  
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # calculate CHisq pvalue
+    tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+    tmp_pval = tibble("var"=rownames(tmp_pval),tmp_pval)
+    
+    # Percentage of variance explained
+    ## calculate the grand mean
+tmp_gm = mean(tmp_data$value)
+## calculate sum of squares between groups
+tmp0 = tibble(a,b,d,y)
+
+tmp = tmp0 %>% dplyr::group_by(a) %>% dplyr::summarise(n=n(),grp_mean = mean(y))
+tmp[,"Sq"] <- tmp$n*(tmp$grp_mean - tmp_gm)^2
+tmp_ssb_a = sum(tmp$Sq)
+
+tmp = tmp0 %>% dplyr::group_by(b) %>% dplyr::summarise(n=n(),grp_mean = mean(y))
+tmp[,"Sq"] <- tmp$n*(tmp$grp_mean - tmp_gm)^2
+tmp_ssb_b = sum(tmp$Sq)
+
+tmp = tmp0 %>% dplyr::group_by(d) %>% dplyr::summarise(n=n(),grp_mean = mean(y))
+tmp[,"Sq"] <- tmp$n*(tmp$grp_mean - tmp_gm)^2
+tmp_ssb_d = sum(tmp$Sq)
+
+## calculate sum of squares error
+tmp = tmp0 %>% dplyr::group_by(a,b,d) %>% dplyr::summarise(grp_mean = mean(y))
+tmp <- left_join(tmp0,tmp,by=c("a","b","d"))
+tmp[,"Sq"] <- (tmp$y - tmp$grp_mean)^2
+tmp_SSE = sum(tmp$Sq) 
+
+## calculate sum of squares for variable interactions
+tmp = tmp0 %>% dplyr::group_by(a,b) %>% dplyr::summarise(n=n(),grp_mean = mean(y))
+tmp[,"Sq"] <- tmp$n*(tmp$grp_mean - tmp_gm)^2
+tmp_ssb_ab = sum(tmp$Sq) - (tmp_ssb_a + tmp_ssb_b)
+
+tmp_ssb_ab = (length(y[which(a == "4_cycles" & b == "MAC")])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults"]) - tmp_gm)^2) -
+  (tmp_ssb_task + tmp_ssb_age)
+
+tmp_ssb_TS = (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$stimulus == "words"]) - tmp_gm)^2) -
+  (tmp_ssb_task + tmp_ssb_stimulus)
+
+tmp_ssb_AS = (length(tmp_data$value[tmp_data$age == "children" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$age == "children" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$age == "children" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$age == "children" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$age == "adults" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$age == "adults" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$age == "adults" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$age == "adults" & tmp_data$stimulus == "words"]) - tmp_gm)^2) -
+  (tmp_ssb_age + tmp_ssb_stimulus)
+
+tmp_ssb_TAS = 
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "words"]) - tmp_gm)^2) -
+  (tmp_ssb_task + tmp_ssb_age + tmp_ssb_stimulus + tmp_ssb_TA + tmp_ssb_TS + tmp_ssb_AS)
+
+## table
+tmp_SS_table = tibble(
+  "groups" = c("task","age","stimulus","task x age","task x stimulus", "age x stimulus", "task x age x xstimulus","error"),
+  "sum of squares" = c(tmp_ssb_task,tmp_ssb_age,tmp_ssb_stimulus,tmp_ssb_TA,tmp_ssb_TS,tmp_ssb_AS,tmp_ssb_TAS,tmp_SSE)
+)
+
+
+## calculate proportion of variance explained
+tmp_SS_table[,"var_expl"] <- tmp_SS_table$`sum of squares` / tmp_SST *100
+    
+    # add OTU name in table
+    tmp_val = tibble("OTU" = tmp_OTU,tmp_pval)
+    
+    
+  } else {
+    tmp_val = tibble("var" = c("(Intercept)","a","b","d","a:b","a:d","b:d","a:b:d"))
+    tmp_val = tibble("OTU"= tmp_OTU,tmp_val,"Chisq"=NA,"Df"=NA,"Pr(>Chisq)"=1,"bonferroni"=1,
+                     "SS"=NA,"pct_expl"=0)
+  }
+  
+  # global df
+  tmp_global = rbind(tmp_global,tmp_val)
+  
+  print(tmp_i)
+  
+  rm(y,glmer3,glmer0,LRT,tmp_LRT_pchisq,tmp_pval,tmp_val)
+
+}
+
+# bonferroni p-val correction: 258 OTUs * (3 factor main effects + 4 factor interactions)
+tmp_global[,"bonferroni"] <- p.adjust(tmp_global$`Pr(>Chisq)`,method = "bonferroni")
+# percentage of explained variance for significant variables
+tmp_global[,"sgnf_pct_expl"] <- ifelse(tmp_global$bonferroni <= 0.05 & tmp_global$var != "(Intercept)",
+                                       tmp_global$pct_expl,0)
+
+#stat_otu_var = tmp_global
+
+rm(b,a,d,o,z,y,glmer3,glmer0,LRT)
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+
+
+```{r}
+
+# https://davidmlane.com/hyperstat/factorial_ANOVA.html
+# https://www.statology.org/two-way-anova-by-hand/
+# https://www.statisticshowto.com/three-way-anova/
+
+##### data -----
+tmp_data = as_tibble(rbind(
+  c("recognition","children","pictures",92),
+c("recognition","children","pictures",90),
+c("recognition","children","pictures",92),
+c("recognition","children","pictures",91),
+c("recognition","children","pictures",90),
+c("recognition","children","words",70),
+c("recognition","children","words",70),
+c("recognition","children","words",71),
+c("recognition","children","words",70),
+c("recognition","children","words",72),
+c("recognition","adults","pictures",90),
+c("recognition","adults","pictures",90),
+c("recognition","adults","pictures",92),
+c("recognition","adults","pictures",94),
+c("recognition","adults","pictures",91),
+c("recognition","adults","words",87),
+c("recognition","adults","words",82),
+c("recognition","adults","words",81),
+c("recognition","adults","words",84),
+c("recognition","adults","words",85),
+c("recall","children","pictures",66),
+c("recall","children","pictures",65),
+c("recall","children","pictures",67),
+c("recall","children","pictures",69),
+c("recall","children","pictures",71),
+c("recall","children","words",62),
+c("recall","children","words",59),
+c("recall","children","words",58),
+c("recall","children","words",60),
+c("recall","children","words",59),
+c("recall","adults","pictures",88),
+c("recall","adults","pictures",88),
+c("recall","adults","pictures",83),
+c("recall","adults","pictures",82),
+c("recall","adults","pictures",88),
+c("recall","adults","words",85),
+c("recall","adults","words",85),
+c("recall","adults","words",82),
+c("recall","adults","words",84),
+c("recall","adults","words",83)
+))
+
+colnames(tmp_data) <- c("task","age","stimulus","value")
+tmp_data$value <- as.numeric(tmp_data$value)
+
+##### sum of squares ----
+
+## calculate the grand mean
+tmp_gm = mean(tmp_data$value)
+## calculate sum of squares between groups
+tmp_ssb_task = (length(tmp_data$value[tmp_data$task == "recognition"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall"])*
+  (mean(tmp_data$value[tmp_data$task == "recall"]) - tmp_gm)^2)
+tmp_ssb_age = (length(tmp_data$value[tmp_data$age == "children"])*
+  (mean(tmp_data$value[tmp_data$age == "children"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$age == "adults"])*
+  (mean(tmp_data$value[tmp_data$age == "adults"]) - tmp_gm)^2)
+tmp_ssb_stimulus = (length(tmp_data$value[tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$stimulus == "words"]) - tmp_gm)^2)
+
+tmp_SSB = tmp_ssb_task + tmp_ssb_age + tmp_ssb_stimulus
+
+## calculate sum of squares total
+tmp_SST = sum(
+  (tmp_data$value - tmp_gm)^2
+)
+
+## calculate sum of squares error
+tmp_SSE = 
+  sum((tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"] -
+     mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"]))^2) +
+  sum((tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "words"] -
+     mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "words"]))^2) +
+  sum((tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"] -
+     mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"]))^2) +
+  sum((tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "words"] -
+     mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "words"]))^2) +
+  sum((tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"] -
+     mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"]))^2) +
+  sum((tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "words"] -
+     mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "words"]))^2) +
+  sum((tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"] -
+     mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"]))^2) +
+  sum((tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "words"] -
+     mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "words"]))^2)
+
+
+## calculate sum of squares for variable interactions
+tmp_ssb_TA = (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults"]) - tmp_gm)^2) -
+  (tmp_ssb_task + tmp_ssb_age)
+
+tmp_ssb_TS = (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$stimulus == "words"]) - tmp_gm)^2) -
+  (tmp_ssb_task + tmp_ssb_stimulus)
+
+tmp_ssb_AS = (length(tmp_data$value[tmp_data$age == "children" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$age == "children" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$age == "children" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$age == "children" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$age == "adults" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$age == "adults" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$age == "adults" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$age == "adults" & tmp_data$stimulus == "words"]) - tmp_gm)^2) -
+  (tmp_ssb_age + tmp_ssb_stimulus)
+
+tmp_ssb_TAS = 
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "children" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recognition" & tmp_data$age == "adults" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "children" & tmp_data$stimulus == "words"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "pictures"]) - tmp_gm)^2) +
+  (length(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "words"])*
+  (mean(tmp_data$value[tmp_data$task == "recall" & tmp_data$age == "adults" & tmp_data$stimulus == "words"]) - tmp_gm)^2) -
+  (tmp_ssb_task + tmp_ssb_age + tmp_ssb_stimulus + tmp_ssb_TA + tmp_ssb_TS + tmp_ssb_AS)
+
+## table
+tmp_SS_table = tibble(
+  "groups" = c("task","age","stimulus","task x age","task x stimulus", "age x stimulus", "task x age x xstimulus","error","total"),
+  "sum of squares" = c(tmp_ssb_task,tmp_ssb_age,tmp_ssb_stimulus,tmp_ssb_TA,tmp_ssb_TS,tmp_ssb_AS,tmp_ssb_TAS,tmp_SSE,tmp_SST)
+)
+
+
+## calculate proportion of variance explained
+tmp_SS_table[,"var_expl"] <- tmp_SS_table$`sum of squares` / tmp_SST *100
+
+
+```
+
+https://stats.stackexchange.com/questions/585856/what-exactly-do-anova-sums-of-squares-represent-in-lmer-models
+
+
+```{r loop_pct_expl_var}
+
+
+tmp_ps0 = ps_16S_fltr
+tmp_ps = prune_samples(tmp_ps0@sam_data$treatment != "C",tmp_ps0)
+
+# define model variables
+## treatments
+a = tmp_ps@sam_data$incub
+b = tmp_ps@sam_data$broth
+d = tmp_ps@sam_data$density
+## offset
+o = log(sample_sums(tmp_ps))
+## random effect
+z <- tmp_ps@sam_data$sample
+
+# global df
+tmp_global = tibble()
+
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  #tmp_i = which(taxa_names(tmp_ps) == "OTU-45")
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  # response variable
+  y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  # models
+  glmer3 <- glmer(y ~ a*b*d + (1 | as.factor(z)),family='poisson', offset = o)
+  glmer0 <- glmer(y ~ 1 + (1 | as.factor(z)),family='poisson', offset = o)
+  
+  # LRT
+  LRT <- 2*(logLik(glmer3)[1] - logLik(glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+  
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # Percentage of variance explained
+    ## calculate sum of squares between groups and residual
+    tmp_aov = aov((y/o) ~ a*b*d + Error(as.factor(z)))
+    tmp_summary = summary(tmp_aov)[["Error: as.factor(z)"]][[1]]
+    tmp_summary = tibble("var"= gsub(rownames(tmp_summary),pattern = " ",replacement = ""),tmp_summary)
+    ## calculate percentage of variance explained
+    tmp_summary[,"pct_expl"] = tmp_summary$`Sum Sq` / sum(tmp_summary$`Sum Sq`) *100
+    
+    # calculate CHisq pvalue
+    tmp_pval = car::Anova(glmer3,type=3,test.statistic=c("Chisq", "F"))
+    tmp_pval = tibble("var"=rownames(tmp_pval),tmp_pval)
+    # join tibbles
+    tmp_val = left_join(tmp_summary,tmp_pval)
+    # add OTU in tibble
+    tmp_val = tibble("OTU"= tmp_OTU,tmp_val)
+    
+  } else {
+    tmp_val = c("a","b","d","a:b","a:d","b:d","a:b:d","Residuals")
+    tmp_val = tibble("OTU"= tmp_OTU,"var"=tmp_val,
+                     "Df"=NA,"Sum Sq"=NA,"Mean Sq"=NA,"F value"=NA,"Pr(>F)"=NA,
+                     "pct_expl"=0,"Chisq"=NA,"Pr(>Chisq)"=NA)
+  }
+  
+  # global df
+  tmp_global = rbind(tmp_global,tmp_val)
+  
+  print(tmp_i)
+
+}
+
+# bonferroni p-val correction: 258 OTUs * (3 factor main effects + 4 factor interactions)
+tmp_global[,"bonferroni"] <- p.adjust(tmp_global$`Pr(>Chisq)`,method = "bonferroni")
+# F values for significant variables
+tmp_global[,"sgnf_fval"] <- ifelse(tmp_global$bonferroni <= 0.05,tmp_global$`F value`,0)
+# percentage of explained variance for significant variables
+tmp_global[,"sgnf_pct_expl"] <- ifelse(tmp_global$bonferroni <= 0.05,tmp_global$pct_expl,0)
+
+
+stat_otu_aov_o = tmp_global
+
+rm(b,a,d,o,z,y,glmer3,glmer0,LRT,tmp_LRT_pchisq,tmp_aov,tmp_pval,tmp_val)
+
+```
+
+```{r write tree multibar: % var expl of significant variables}
+
+tmp_data = stat_otu_aov_o
+# subset data
+tmp_data <- tmp_data %>%
+  dplyr::filter(var != "Residuals")
+
+# select data
+tmp_data = tibble("OTU"= tmp_data$OTU,
+                  "var"= tmp_data$var,
+                  "sgnf_pct_expl"= tmp_data$sgnf_pct_expl)
+
+# change NAs with zeros
+tmp_data$sgnf_pct_expl[is.na(tmp_data$sgnf_pct_expl)] <- 0
+
+# wrangle data
+tmp_data <- tidyr::pivot_wider(tmp_data,names_from = var, values_from = sgnf_pct_expl)
+
+# write csv
+write.csv(tmp_data,file = "Data/itol_stat_otu_aov.csv",quote = F,row.names = F)
+
+```
+
+# Effect of coalescence treatments
+
+To estimate the effect of each treatment on each OTU abundance, we used a generalized linear mixed model. Considering that an OTU of abundance Y, in any j replicates of any i treatment, follows a Poisson distribution of parameter $\Lambda$ as $Y\sim\mathcal{P}\left(\mathrm{\Lambda}\right)$, we used the following model:
+
+$$\log(\Lambda_{ij}) = o_{ij} + \mu + \gamma_i + Z_{ij},\ Z_{{ij}_{1\le j\le10}} \ iid \sim \mathcal{N} (0,\sigma^2) \ (3)$$
+
+where $i=\left\{0,\ldots,12\right\}$ represents the non-coalesced control and the coalescence treatments, $j=\left\{1,\ldots,10\right\}$ represents the replicates, $\gamma$ is the fixed effect of the treatments, o is the offset for each sample calculated as the log of the sample read sum and Z is the random sampling effect modelling the data overdispersion. The analysis was performed using the glmer function of the lme4 package (version 1.1-27). Each model was tested against a null model (i.e., a model without the effect of the treatments) using likelihood-ratio test and p-value were corrected using a Bonferroni correction (adjusted Chi square p-value $\le$ 0.05). Subsequently, we implemented multiple pairwise comparisons on significative models with the emmeans function of the emmeans package (version 1.6.1) and p-values were corrected using a Bonferroni correction (p-value $\le$ 0.05).
+
+```{r loop}
+
+tmp_ps = ps_16S_fltr
+
+# define model variables
+## treatments
+tmp_g = tmp_ps@sam_data$treatment
+## offset
+tmp_o = log(sample_sums(tmp_ps))
+## random effect
+tmp_z = tmp_ps@sam_data$sample
+
+# global df
+tmp_glmer_sum_global = tibble()
+tmp_emmeans_sum_global = tibble()
+
+for (tmp_i in 1:ntaxa(tmp_ps)) {
+  
+  tmp_OTU = taxa_names(tmp_ps)[tmp_i]
+  print(paste0(tmp_i,": ",tmp_OTU))
+  
+  # response variable
+  tmp_y = as.vector(tmp_ps@otu_table[tmp_OTU,]@.Data)
+  
+  tmp_glmer1 <- glmer(tmp_y ~ -1 + tmp_g + (1 | tmp_z),family='poisson', offset = tmp_o,nAGQ=0)
+  tmp_glmer0 <- glmer(tmp_y ~ 1 + (1 | tmp_z),family='poisson', offset = tmp_o)
+  
+  # LRT
+  tmp_LRT <- 2*(logLik(tmp_glmer1)[1] - logLik(tmp_glmer0)[1])
+  ## calcultate Chisq pval and Bonferroni correction for 258 OTUs
+  tmp_LRT_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE) *ntaxa(tmp_ps)
+
+  if (tmp_LRT_pchisq <= 0.05) {
+    
+    # model summary
+    tmp_glmer_sum = summary(tmp_glmer1)$coefficients
+    tmp_glmer_sum = tibble("OTU"= tmp_OTU,
+                           "treatment"=rownames(tmp_glmer_sum),
+                           as_tibble(tmp_glmer_sum))
+    
+    # multiple comparaison
+    tmp_emmeans = emmeans(tmp_glmer1,pairwise~tmp_g,adjust="none")
+    ## select p value
+    tmp_emmeans_sum = summary(tmp_emmeans)
+    tmp_emmeans_sum = tmp_emmeans_sum[["contrasts"]]
+    ## wrangle summary
+    tmp_df = tmp_emmeans_sum
+    tmp = unlist(strsplit(as.character(tmp_df$contrast)," - "))
+    tmp_df[,"g1"] <- tmp[seq(1,length(tmp),by=2)]
+    tmp_df[,"g2"] <- tmp[seq(2,length(tmp),by=2)]
+    # tmp_df = tmp_df[tmp_df$g1 == "C",] # keep only comparison to control
+    tmp_emmeans_sum = cbind("OTU"=tmp_OTU,tmp_df)
+    
+    rm(tmp_emmeans,tmp,tmp_df)
+    
+    # global df
+    tmp_glmer_sum_global = rbind(tmp_glmer_sum_global,tmp_glmer_sum)
+    tmp_emmeans_sum_global = rbind(tmp_emmeans_sum_global,tmp_emmeans_sum)
+    }
+  
+
+}
+
+
+# bonferroni p-val correction : 258 OTUs * 78 comparisons
+tmp_emmeans_sum_global[,"pval_adjust"] <- p.adjust(tmp_emmeans_sum_global$p.value, method = "bonferroni")
+
+stat_otu_emmeans = tmp_emmeans_sum_global
+stat_otu_glmer = tmp_glmer_sum_global
+
+```
+
+A loglikelihood ratio test was applied when the OTU had a null abundance in one treatment and a median abundance higher or equal to 5 in the compared treatment (see code available online).
+
+```{r apply median filter for comparisons with C}
+
+
+# set median threshold
+tmp_thrld = 5
+
+# calculate sum & median abundance by treatment for each OTU
+tmp_psmelt = psmelt(ps_16S_fltr) %>%
+  select("OTU","sample","treatment","Abundance")
+tmp_abund <- tmp_psmelt %>%
+  dplyr::group_by(OTU,treatment) %>%
+  dplyr::summarise(abund_sum = sum(Abundance),
+                   abund_median = median(Abundance)) %>%
+  ungroup()
+# which OTUs have an abundance sum =0 in any treatment
+tmp_OTUs =  unique(tmp_abund$OTU[tmp_abund$abund_sum == 0])
+# for each of these OTUs, apply a LRT when abundance =0 in one treatment and abundance median >= 5 in another treatment
+tmp_loop_df = stat_otu_emmeans
+for (tmp_OTU in tmp_OTUs) {
+  tmp_data = tmp_abund[tmp_abund$OTU == tmp_OTU,]
+  
+  # abundance in C
+  tmp_abund_C = tmp_data[tmp_data$treatment == "C",]
+  
+  if (tmp_abund_C$abund_sum == 0) {
+    # in which treatment median abundance >= 5
+    tmp_ttts = tmp_data$treatment[tmp_data$abund_median >= tmp_thrld]
+    
+    for (tmp_ttt in tmp_ttts) {
+      
+      # abundance in samples
+      tmp1 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == "C"]
+      tmp2 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == tmp_ttt]
+      
+      # LRT
+      tmp_logLik1 <- sum(dpois(tmp1,mean(tmp1), log=TRUE)) +
+        sum(dpois(tmp2,mean(tmp2), log=TRUE))
+      tmp_logLik0 <- sum(dpois(c(tmp1,tmp2), mean(c(tmp1,tmp2)), log=TRUE)) 
+      tmp_LRT <- 2*(tmp_logLik1 - tmp_logLik0)
+      tmp_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE)
+      
+      # change p-value in table
+      tmp_loop_df$pval_adjust[tmp_loop_df$OTU == tmp_OTU & tmp_loop_df$contrast == paste0("C - ",tmp_ttt)] <- tmp_pchisq
+      
+    }
+
+    
+    
+  }
+  
+  if (tmp_abund_C$abund_median >= tmp_thrld) {
+    # in which treatment abundance =0
+    tmp_ttts = tmp_data$treatment[tmp_data$abund_sum ==0]
+    
+    for (tmp_ttt in tmp_ttts) {
+      
+      # abundance in samples
+      tmp1 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == "C"]
+      tmp2 = unlist(ps_16S_fltr@otu_table@.Data[tmp_OTU,])[ps_16S_fltr@sam_data$treatment == tmp_ttt]
+      
+      # LRT
+      tmp_logLik1 <- sum(dpois(tmp1,mean(tmp1), log=TRUE)) +
+        sum(dpois(tmp2,mean(tmp2), log=TRUE))
+      tmp_logLik0 <- sum(dpois(c(tmp1,tmp2), mean(c(tmp1,tmp2)), log=TRUE)) 
+      tmp_LRT <- 2*(tmp_logLik1 - tmp_logLik0)
+      tmp_pchisq = pchisq(tmp_LRT, df=1, lower.tail=FALSE)
+      
+      # change p-value in table
+      tmp_loop_df$pval_adjust[tmp_loop_df$OTU == tmp_OTU & tmp_loop_df$contrast == paste0("C - ",tmp_ttt)] <- tmp_pchisq
+      
+    }
+    
+  }
+  
+}
+
+stat_otu_emmeans_fltr = tmp_loop_df
+
+```
+
+
+# Phylogenetic signal
+
+Phylogenetic signals were tested for the estimated effect of each coalescence treatment (Equation 3) and for the relative effect (F values) of the community properties (Equation 4) on each OTU abundance using the Pagel’s Lambda method of the phylosig function from the phytools package (version 1.5-1).
+
+```{r coalescence_treatment_effects}
+# /!\ need tmp_heatmap from {r write tree: heatmap OTU estimates, comparison with control}
+
+library(phytools)
+
+# tree
+tmp_ps = ps_16S_fltr
+tmp_tree = phy_tree(tmp_ps)
+
+# loop
+tmp_loop_df <- tibble()
+tmp_loop_df_lambda <- tibble()
+tmp_name_ttt <- colnames(tmp_heatmap)[-1]
+for (tmp_i in tmp_name_ttt) {
+  
+  # trait
+  tmp_trait = unlist(tmp_heatmap[,tmp_i])
+  names(tmp_trait) <- tmp_heatmap$OTU
+  
+  # phylo signal
+  tmp_lambda <- phytools::phylosig(tmp_tree,tmp_trait,method = "lambda",test = T,nsim = 999)
+  tmp_K <- phytools::phylosig(tmp_tree,tmp_trait,method = "K",test = T,nsim = 999)
+  
+  # extract loop data
+  tmp <- tibble("treatment"=tmp_i,
+                "method"=c("lambda","K"),
+                "phylo_sig"=c(tmp_lambda$lambda,tmp_K$K),
+                "pval"=c(tmp_lambda$P,tmp_K$P))
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  
+  # etract lmbda data
+  tmp <- tibble("treatment"=tmp_i,
+                "lambda"=tmp_lambda$lambda,
+                "LR"=2*(tmp_lambda$logL- tmp_lambda$logL0),
+                "pval"=tmp_lambda$P)
+  tmp_loop_df_lambda <- rbind(tmp_loop_df_lambda,tmp)
+  
+}
+
+# pval adjust
+tmp_loop_df[,"pval_adjust"] <- tmp_loop_df$pval * nrow(tmp_loop_df)
+tmp_loop_df[,"asterisk"] <- ifelse(tmp_loop_df$pval_adjust <= 0.05,"*","")
+tmp_loop_df_lambda[,"pval_adjust"] <- tmp_loop_df_lambda$pval * nrow(tmp_loop_df_lambda)
+tmp_loop_df_lambda[,"asterisk"] <- ifelse(tmp_loop_df_lambda$pval_adjust >= 0.05,"","*")
+
+
+# plot
+tmp_loop_df$treatment <- factor(tmp_loop_df$treatment,levels = rev(colnames(tmp_heatmap)[-1]))
+
+ggplot(tmp_loop_df) +
+ aes(x = treatment, y = phylo_sig, fill = method) +
+ geom_col(position = position_dodge(preserve = "single")) +
+ scale_fill_manual(values = c("#999999","#333333")) +
+ coord_flip() +
+ theme_light()
+
+# extract lambda data
+write.csv(tmp_loop_df_lambda,"C:/Users/srhuet/Downloads/tmp_phylosig.csv",quote = F,row.names = F)
+
+
+```
+
+```{r F_values}
+# /!\ need tmp_data from {r write tree multibar: F_value of OTU significant variables}
+
+library(phytools)
+
+# tree
+tmp_ps = ps_16S_fltr
+tmp_tree = phy_tree(tmp_ps)
+
+# loop
+tmp_loop_df <- tibble()
+tmp_loop_df_lambda <- tibble()
+tmp_name_var <- c("a","b","d","b:a","a:d","b:d","b:a:d")
+for (tmp_i in tmp_name_var) {
+  
+  # trait
+  tmp_trait = unlist(tmp_data[,tmp_i])
+  names(tmp_trait) <- tmp_data$OTU
+  
+  # phylo signal
+  tmp_lambda <- phytools::phylosig(tmp_tree,tmp_trait,method = "lambda",test = T,nsim = 999)
+  tmp_K <- phytools::phylosig(tmp_tree,tmp_trait,method = "K",test = T,nsim = 999)
+  
+  # extract loop data
+  tmp <- tibble("var"=tmp_i,
+                "method"=c("lambda","K"),
+                "phylo_sig"=c(tmp_lambda$lambda,tmp_K$K),
+                "pval"=c(tmp_lambda$P,tmp_K$P))
+  tmp_loop_df <- rbind(tmp_loop_df,tmp)
+  
+  # etract lmbda data
+  tmp <- tibble("var"=tmp_i,
+                "lambda"=tmp_lambda$lambda,
+                "LR"=2*(tmp_lambda$logL- tmp_lambda$logL0),
+                "pval"=tmp_lambda$P)
+  tmp_loop_df_lambda <- rbind(tmp_loop_df_lambda,tmp)
+  
+}
+
+# pval adjust
+tmp_loop_df[,"pval_adjust"] <- tmp_loop_df$pval * nrow(tmp_loop_df)
+tmp_loop_df[,"asterisk"] <- ifelse(tmp_loop_df$pval_adjust <= 0.05,"*","")
+tmp_loop_df_lambda[,"pval_adjust"] <- tmp_loop_df_lambda$pval * nrow(tmp_loop_df_lambda)
+tmp_loop_df_lambda[,"asterisk"] <- ifelse(tmp_loop_df_lambda$pval_adjust >= 0.05,"","*")
+
+
+# plot
+tmp_loop_df$var <- factor(tmp_loop_df$var,levels = rev(c("a","b","d","b:a","a:d","b:d","b:a:d")))
+
+ggplot(tmp_loop_df) +
+ aes(x = var, y = phylo_sig, fill = method) +
+ geom_col(position = position_dodge(preserve = "single")) +
+ scale_fill_manual(values = c("#999999","#333333")) +
+ coord_flip() +
+ theme_light()
+
+# extract lambda data
+write.csv(tmp_loop_df_lambda,"C:/Users/srhuet/Downloads/tmp_phylosig.csv",quote = F,row.names = F)
+
+
+```
+
+# itol
+
+## extract data
+
+```{r write tree}
+library(ape)
+
+tmp_ps = ps_16S_fltr
+
+tmp_tree = tmp_ps@phy_tree
+
+write.tree(tmp_tree,"tmp_itol_tree.tre")
+
+```
+
+```{r write tree: taxo}
+
+tmp_data =taxtab
+tmp_data[,"range"] <- rep("range", nrow(tmp_data))
+tmp_data <- tmp_data[,c("OTU","range","color","taxa")]
+
+write.table(tmp_data,"tmp_itol_tree_taxo.txt",quote = F,sep = ",",row.names = F)
+
+
+```
+
+```{r heatmap}
+
+# select data
+tmp_data = stat_otu_emmeans_fltr %>% # remove OTUs for which model didnt work
+  filter(g1 == "C") %>%
+  # create heatmap column
+  mutate(heatmap = case_when(
+    # inverse to have ttt-C
+    pval_adjust <= 0.05 ~ - estimate,
+    .default = 0),
+    signif_comp = g2
+    ) %>%
+  # select data
+  select(OTU,signif_comp,heatmap) %>% 
+  # set values between -6 and 6
+  mutate(
+    heatmap = case_when(
+      heatmap < -6 ~ -6,
+      heatmap > 6 ~ 6,
+      .default = heatmap
+    )
+  )
+
+# add missing otu
+tmp_missing_OTUs = expand.grid(
+  setdiff(taxa_names(ps_16S_fltr),unique(tmp_data$OTU)),
+  unique(tmp_data$signif_comp),stringsAsFactors = F) %>% 
+  rename(OTU = Var1,signif_comp = Var2) %>%
+  mutate(heatmap = 0)
+tmp_data <- tmp_data %>%
+  full_join(.,tmp_missing_OTUs)
+
+# wrangle data
+tmp_heatmap <- pivot_wider(tmp_data,names_from = signif_comp, values_from = heatmap)
+
+# extract data
+#write.csv(tmp_heatmap,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+# COLOR_MIN,#3399FF / COLOR_MAX,#FF3366
+
+```
+
+```{r rel_abund_in_susp}
+
+tmp_ps = ps_16S_susp
+# merge samples by treatment
+tmp_ps <- merge_samples(tmp_ps,tmp_ps@sam_data$treatment)
+## calculate relative abundance
+tmp_ps = transform_sample_counts(tmp_ps, function(x) x / sum(x, na.rm = T))
+
+# create final df
+tmp_data <- t(tmp_ps@otu_table@.Data)
+
+tmp_data = tibble("OTU"=rownames(tmp_data),
+                  #"T0"= (tmp_data[,"T0"]),
+                  "susp_C"= (tmp_data[,"susp_C"]),
+                  "susp_MAC_a1"= (tmp_data[,"susp_MAC_a1"]),
+                  "susp_MAC_a2"= (tmp_data[,"susp_MAC_a2"]),
+                  "susp_PEB_a1"= (tmp_data[,"susp_PEB_a1"]),
+                  "susp_PEB_a2"= (tmp_data[,"susp_PEB_a2"]))
+
+# plot quantiles
+tmp_data %>%
+  pivot_longer(!OTU,names_to = "susp",values_to = "relab") %>%
+  filter(relab >0) %>%
+  ggplot() +
+  aes(x=susp,y=relab)+
+  geom_boxplot() +
+  geom_jitter(width = 0.25)+
+  scale_y_log10() +
+  theme_light()
+  
+# convert to quantile 
+tmp_quantiles = tmp_data %>% 
+  mutate_at(
+    vars(one_of( "susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")),
+    funs(case_when(
+      . == 0 ~ 0,
+      . > 0 & . <= quantile(.[. > 0],0.1) ~ 1/10,
+      . > quantile(.[. > 0],0.1) & . <= quantile(.[. > 0],0.2) ~ 2/10,
+      . > quantile(.[. > 0],0.2) & . <= quantile(.[. > 0],0.3) ~ 3/10,
+      . > quantile(.[. > 0],0.3) & . <= quantile(.[. > 0],0.4) ~ 4/10,
+      . > quantile(.[. > 0],0.4) & . <= quantile(.[. > 0],0.5) ~ 5/10,
+      . > quantile(.[. > 0],0.5) & . <= quantile(.[. > 0],0.6) ~ 6/10,
+      . > quantile(.[. > 0],0.6) & . <= quantile(.[. > 0],0.7) ~ 7/10,
+      . > quantile(.[. > 0],0.7) & . <= quantile(.[. > 0],0.8) ~ 8/10,
+      . > quantile(.[. > 0],0.8) & . <= quantile(.[. > 0],0.9) ~ 9/10,
+      . > quantile(.[. > 0],0.9) ~ 10/10
+      ))) %>%
+  filter(OTU %in% taxa_names(ps_16S_fltr)) 
+
+# convert to quantile 
+tmp_quantiles = tmp_data %>% 
+  mutate_at(
+    vars(one_of( "susp_C","susp_MAC_a1","susp_MAC_a2","susp_PEB_a1","susp_PEB_a2")),
+    funs(case_when(
+      . == 0 ~ 0,
+      . > 0 & . <= quantile(.[. > 0],0.25) ~ 1/4,
+      . > quantile(.[. > 0],0.25) & . <= quantile(.[. > 0],0.50) ~ 2/4,
+      . > quantile(.[. > 0],0.50) & . <= quantile(.[. > 0],0.75) ~ 3/4,
+      . > quantile(.[. > 0],0.75) ~ 4/4
+      ))) %>%
+  filter(OTU %in% taxa_names(ps_16S_fltr)) 
+
+# select OTU in microcosm
+tmp_rel_abund_in_susp = tibble("OTU"=taxa_names(ps_16S_fltr)) %>%
+  left_join(.,tmp_quantiles) %>%
+  dplyr::select(OTU,susp_C,susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2)
+# replace NAs
+tmp_rel_abund_in_susp[is.na(tmp_rel_abund_in_susp)] <- 0
+  
+# extract data
+write.table(tmp_rel_abund_in_susp,"tmp_itol_tree_data.txt",quote = F,sep = ",")
+
+```
+
+```{r network_M0}
+
+tmp_network_M0 = network_M0_edges %>%
+  mutate(
+    # add edge color & style
+    color = case_when(
+      value > 0 ~ "#3399FF",
+      .default = "#FF3366"),
+    style = "normal",
+    # edge absolute values
+    value = abs(value)
+  ) %>%
+  select(source,target,value,color,style)
+
+# extract data
+write.table(tmp_network_M0,"itol/tmp_itol_connection.txt",quote = F,sep = ",",row.names = F)
+
+```
+
+## analyse itol
+
+```{r comp_heatmap_susp}
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_itol) %>%
+  left_join(.,taxtab)
+
+# all OTUs
+## UP
+tmp = tmp_data %>%
+  filter(susp_C < susp_MAC_a1|susp_C < susp_MAC_a2|susp_C < susp_PEB_a1|susp_C < susp_PEB_a2)
+### only 12 OTUs more abundant in manipulated suspensions
+tmp3 <- tmp_data %>%
+  pivot_longer(cols = colnames(tmp_heatmap)[-1],names_to = "ttt",values_to = "heatmap")
+length(unique(tmp3$OTU[tmp3$heatmap > 0]))
+### 51 OTUs up in at least one coalescence treatment
+
+## DOWN
+tmp = tmp_data %>%
+  filter(susp_C > susp_MAC_a1| susp_C>susp_MAC_a2| susp_C>susp_PEB_a1| susp_C>susp_PEB_a2)
+### only 229 OTUs less abundant in manipulated suspensions
+tmp3 <- tmp_data %>%
+  pivot_longer(cols = colnames(tmp_heatmap)[-1],names_to = "ttt",values_to = "heatmap")
+length(unique(tmp3$OTU[tmp3$heatmap < 0]))
+### 51 OTUs up in at least one coalescence treatment
+
+# Alphaproteobacteria
+tmp = tmp_data %>%
+  filter(taxa == "Alphaproteobacteria" &
+           susp_C >= susp_MAC_a1 & susp_C >= susp_MAC_a2 & susp_C >= susp_PEB_a1 & susp_C >= susp_PEB_a2)
+
+tmp2 <- tmp_data %>%
+  filter(taxa == "Alphaproteobacteria" &
+           !(OTU %in% tmp$OTU))
+## only 7 OTUs more abundant in manipulated suspensions
+tmp3 <- tmp_data %>%
+  filter(taxa == "Alphaproteobacteria") %>%
+  pivot_longer(cols = colnames(tmp_heatmap)[-1],names_to = "ttt",values_to = "heatmap")
+length(unique(tmp3$OTU[tmp3$heatmap > 0]))
+## 22 OTUs up in at least one coalescence treatment
+
+```
+
+```{r comp_heatmap_susp_network}
+
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_itol) %>%
+  left_join(.,taxtab)
+
+# select OTUs data
+tmp = tmp_data %>%
+  rowwise() %>%
+  filter(
+    ## taxo
+    taxa %in% c("Alphaproteobacteria","Gammaproteobacteria")
+    ## detected in susp C
+    & susp_C > 0 
+    ## detected in at least one manipulated suspension
+    & sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+    ## up in microcosms (in at least two communities)
+    & sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+            MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+            PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+            PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 2
+    ## not down in microcosms
+    & sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+            MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+            PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+            PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+    ## in network
+    & OTU %in% network_M0_nodes
+    )
+## 9 OTUs
+
+# select networks links between these OTUs
+tmp_network = network_M0_edges %>%
+  filter(
+    source %in% tmp$OTU
+    | target %in% tmp$OTU
+  )
+
+# extract data
+tmp_itol = tmp_network %>%
+  select(source,target,value) %>%
+  mutate(
+    # add edge color & style
+    color = case_when(
+      value < 0 ~ "#3399FF",
+      .default = "#FF3366"),
+    style = "normal",
+    # edge absolute values
+    value = abs(value)
+  )
+write.table(tmp_itol,"itol/tmp_itol_connection.txt",quote = F,sep = ",",row.names = F)
+
+
+```
+
+```{r nb_M0_edges_order}
+
+tmp_data <- network_M0_edges %>%
+  rowwise() %>%
+  mutate(
+    taxa_source = taxtab$taxa[taxtab$OTU == source],
+    taxa_target = taxtab$taxa[taxtab$OTU == target],
+    taxa = paste0(sort(c(taxa_source,taxa_target)),collapse =  " - ")
+  ) %>% ungroup()
+
+
+# barplot
+
+tmp_plot_data <- tmp_data %>%
+  mutate(
+    edge_sign = case_when(
+      value > 0 ~ "pos",
+      value <0 ~ "neg"
+    )
+  ) %>%
+  aggregate(edge_name ~ taxa + edge_sign, function(x) length(unique(x))) %>%
+  mutate(count = case_when(
+    edge_sign == "pos" ~ edge_name,
+    edge_sign == "neg" ~ - edge_name
+  ))
+
+tmp_plot_data %>%
+  ggplot() +
+  aes(x = taxa, y = count,fill = edge_sign) +
+  geom_col() +
+  scale_fill_manual(values = c("pos"="#FF3366","neg"="#3399FF")) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") #+
+
+  
+
+
+```
+
+
+```{r nb_edges_alpha_gamma}
+
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+
+# ALPHA & GAMMA ----
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_rel_abund_in_susp) %>%
+  left_join(.,taxtab)
+
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+  rowwise() %>%
+  filter(
+    ## taxo
+    taxa %in% c("Alphaproteobacteria","Gammaproteobacteria")
+    ## detected in susp C
+    & susp_C > 0 
+    ## detected in at least one manipulated suspension
+    & sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+    ## up in microcosms (in at least 1 community)
+    & sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+            MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+            PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+            PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 1
+    ## not down in microcosms
+    & sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+            MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+            PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+            PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+    ## in network
+    & OTU %in% network_M0_nodes
+    )
+## 10 OTUs
+
+# select networks links between these OTUs ----
+tmp_data <- network_M0_edges %>%
+  filter(
+    source %in% tmp$OTU
+    | target %in% tmp$OTU
+  ) %>%
+  # select negative links only
+  filter(value <0) %>%
+  # add taxonomy
+  rowwise() %>%
+  mutate(
+    taxa_source = taxtab$taxa[taxtab$OTU == source],
+    taxa_target = taxtab$taxa[taxtab$OTU == target],
+    taxa = paste0(sort(c(taxa_source,taxa_target)),collapse =  " - ")
+  ) %>% ungroup()
+ 
+# barplot ----
+
+tmp_plot_data <- tmp_data %>%
+  mutate(
+    edge_sign = case_when(
+      value > 0 ~ "pos",
+      value <0 ~ "neg"
+    )
+  ) %>%
+  aggregate(edge_name ~ taxa + edge_sign, function(x) length(unique(x)))
+
+tmp_plot_data %>%
+  ggplot() +
+  aes(x = taxa, y = edge_name) +
+  geom_col() +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0,color = "#333333") #+
+
+
+```
+
+
+# Chord Diagram network
+
+https://www.data-to-viz.com/graph/chord.html
+
+```{r chord_diag_example}
+
+# Libraries
+library(tidyverse)
+library(viridis)
+library(patchwork)
+library(hrbrthemes)
+library(circlize)
+library(chorddiag)  #devtools::install_github("mattflor/chorddiag")
+
+# Load dataset from github
+tmp_data <- read.table("https://raw.githubusercontent.com/holtzy/data_to_viz/master/Example_dataset/13_AdjacencyDirectedWeighted.csv", header=TRUE)
+
+# short names
+colnames(tmp_data) <- c("Africa", "East Asia", "Europe", "Latin Ame.",   "North Ame.",   "Oceania", "South Asia", "South East Asia", "Soviet Union", "West.Asia")
+rownames(tmp_data) <- colnames(tmp_data)
+
+# I need a long format
+tmp_data_long <- tmp_data %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname)
+
+# parameters
+circos.clear()
+circos.par(start.degree = 90, gap.degree = 4, track.margin = c(-0.1, 0.1), points.overflow.warning = FALSE)
+par(mar = rep(0, 4))
+
+# color palette
+tmp_mycolor <- viridis(10, alpha = 1, begin = 0, end = 1, option = "D")
+tmp_mycolor <- tmp_mycolor[sample(1:10)]
+
+# Base plot
+chordDiagram(
+  x = tmp_data_long, 
+  grid.col = tmp_mycolor,
+  transparency = 0.25,
+  directional = 1,
+  direction.type = c("arrows", "diffHeight"), 
+  diffHeight  = -0.04,
+  annotationTrack = "grid", 
+  annotationTrackHeight = c(0.05, 0.1),
+  link.arr.type = "big.arrow", 
+  link.sort = TRUE, 
+  link.largest.ontop = TRUE)
+
+# Add text and axis
+circos.trackPlotRegion(
+  track.index = 1, 
+  bg.border = NA, 
+  panel.fun = function(x, y) {
+    
+    xlim = get.cell.meta.data("xlim")
+    sector.index = get.cell.meta.data("sector.index")
+    
+    # Add names to the sector. 
+    circos.text(
+      x = mean(xlim), 
+      y = 3.2, 
+      labels = sector.index, 
+      facing = "bending", 
+      cex = 0.8
+      )
+
+    # Add graduation on axis
+    circos.axis(
+      h = "top", 
+      major.at = seq(from = 0, to = xlim[2], by = ifelse(test = xlim[2]>10, yes = 2, no = 1)), 
+      minor.ticks = 1, 
+      major.tick.length = 0.5,
+      labels.niceFacing = FALSE)
+  }
+)
+
+```
+
+```{r chord_diag_network_ProteoBacteria}
+
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+
+# ALPHA ----
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_rel_abund_in_susp) %>%
+  left_join(.,taxtab)
+
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+  rowwise() %>%
+  filter(
+    ## taxo
+    taxa %in% c("Alphaproteobacteria")
+    ## detected in susp C
+    & susp_C > 0 
+    ## detected in at least one manipulated suspension
+    & sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+    ## up in microcosms (in at least two communities)
+    & sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+            MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+            PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+            PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 2
+    ## not down in microcosms
+    & sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+            MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+            PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+            PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+    ## in network
+    & OTU %in% network_M0_nodes
+    )
+## 9 OTUs
+
+# select networks links between these OTUs
+tmp_network = network_M0_edges %>%
+  filter(
+    source %in% tmp$OTU
+    | target %in% tmp$OTU
+  ) %>%
+  # select negative links only
+  filter(value <0) %>%
+  # add taxonomy
+  left_join(.,taxtab %>% select(OTU,taxa),by=c("source"="OTU")) %>%
+  left_join(.,taxtab %>% select(OTU,taxa),by=c("target"="OTU")) %>%
+  # rename var for chord function
+  rename(rowname= taxa.x,
+         key = taxa.y)
+
+# select only variables needed for the chord diagram
+tmp_chord <- tmp_network %>%
+  select(rowname,key,value) %>%
+  arrange(.,rowname)
+
+# chord diagram
+
+# parameters
+circos.clear()
+circos.par(start.degree = 90, gap.degree = 4, track.margin = c(-0.1, 0.1), points.overflow.warning = FALSE)
+par(mar = rep(0, 4))
+
+# color palette
+tmp_mycolor <- color_palette %>% filter(set == "taxo")
+tmp_mycolor <- tmp_mycolor$color[tmp_mycolor$treatment %in% unique(c(tmp_network$key,tmp_network$rowname))]
+
+# Base plot
+chordDiagram(
+  x = tmp_chord,
+  order = sort(unique(c(tmp_network$key,tmp_network$rowname))),
+  grid.col = tmp_mycolor,
+  transparency = 0.25,
+  #directional = 1,
+  #direction.type = c("arrows", "diffHeight"), 
+  #diffHeight  = -0.04,
+  annotationTrack = "grid", 
+  annotationTrackHeight = c(0.05, 0.1),
+  link.arr.type = "big.arrow", 
+  link.sort = TRUE, 
+  link.largest.ontop = TRUE)
+
+# Add text and axis
+circos.trackPlotRegion(
+  track.index = 1, 
+  bg.border = NA, 
+  panel.fun = function(x, y) {
+    
+    xlim = get.cell.meta.data("xlim")
+    sector.index = get.cell.meta.data("sector.index")
+    
+    # Add names to the sector. 
+    circos.text(
+      x = mean(xlim), 
+      y = 3.2, 
+      labels = sector.index, 
+      facing = "bending", 
+      cex = 0.8
+      )
+
+  }
+)
+
+# GAMMA ----
+
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+
+tmp_data = tmp_heatmap %>%
+  left_join(.,tmp_rel_abund_in_susp) %>%
+  left_join(.,taxtab)
+
+# select OTUs data
+# Look at : les liens des 3-4 OTUs alpha et gamma present dans les deux communautes sources et dont la proportion augmente apres coalescence
+tmp = tmp_data %>%
+  rowwise() %>%
+  filter(
+    ## taxo
+    taxa %in% c("Gammaproteobacteria")
+    ## detected in susp C
+    & susp_C > 0 
+    ## detected in at least one manipulated suspension
+    & sum(c(susp_MAC_a1,susp_MAC_a2,susp_PEB_a1,susp_PEB_a2),na.rm = T) > 0
+    ## up in microcosms (in at least two communities)
+    & sum(c(MAC_a1d1>0,MAC_a1d2>0,MAC_a1d3>0,
+            MAC_a2d1>0,MAC_a2d2>0,MAC_a2d3>0,
+            PEB_a1d1>0,PEB_a1d2>0,PEB_a1d3>0,
+            PEB_a2d1>0,PEB_a2d2>0,PEB_a2d3>0),na.rm = T) >= 2
+    ## not down in microcosms
+    & sum(c(MAC_a1d1<0,MAC_a1d2<0,MAC_a1d3<0,
+            MAC_a2d1<0,MAC_a2d2<0,MAC_a2d3<0,
+            PEB_a1d1<0,PEB_a1d2<0,PEB_a1d3<0,
+            PEB_a2d1<0,PEB_a2d2<0,PEB_a2d3<0),na.rm = T) == 0
+    ## in network
+    & OTU %in% network_M0_nodes
+    )
+## 9 OTUs
+
+# select networks links between these OTUs
+tmp_network = network_M0_edges %>%
+  filter(
+    source %in% tmp$OTU
+    | target %in% tmp$OTU
+  ) %>%
+  # select negative links only
+  filter(value <0) %>%
+  # add taxonomy
+  left_join(.,taxtab %>% select(OTU,taxa),by=c("source"="OTU")) %>%
+  left_join(.,taxtab %>% select(OTU,taxa),by=c("target"="OTU")) %>%
+  # rename var for chord function
+  rename(rowname= taxa.y,
+         key = taxa.x)
+
+# select only variables needed for the chord diagram
+tmp_chord <- tmp_network %>%
+  select(rowname,key,value) %>%
+  arrange(.,rowname) 
+
+# chord diagram
+
+# parameters
+circos.clear()
+circos.par(start.degree = 90, gap.degree = 4, track.margin = c(-0.1, 0.1), points.overflow.warning = FALSE)
+par(mar = rep(0, 4))
+
+# color palette
+tmp_mycolor <- color_palette %>% filter(set == "taxo")
+tmp_mycolor <- tmp_mycolor$color[tmp_mycolor$treatment %in% unique(c(tmp_network$key,tmp_network$rowname))]
+
+# Base plot
+chordDiagram(
+  x = tmp_chord,
+  order = sort(unique(c(tmp_network$key,tmp_network$rowname))),
+  grid.col = tmp_mycolor,
+  transparency = 0.25,
+  #directional = 1,
+  #direction.type = c("arrows", "diffHeight"), 
+  #diffHeight  = -0.04,
+  annotationTrack = "grid", 
+  annotationTrackHeight = c(0.05, 0.1),
+  link.arr.type = "big.arrow", 
+  link.sort = TRUE, 
+  link.largest.ontop = TRUE)
+
+# Add text and axis
+circos.trackPlotRegion(
+  track.index = 1, 
+  bg.border = NA, 
+  panel.fun = function(x, y) {
+    
+    xlim = get.cell.meta.data("xlim")
+    sector.index = get.cell.meta.data("sector.index")
+    
+    # Add names to the sector. 
+    circos.text(
+      x = mean(xlim), 
+      y = 3.2, 
+      labels = sector.index, 
+      facing = "bending", 
+      cex = 0.8
+      )
+
+  }
+)
+
+```
+
+
+

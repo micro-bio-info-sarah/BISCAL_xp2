@@ -1,0 +1,243 @@
+---
+title: "1_Load_data"
+author: "Sarah HUET"
+date: "2021 M03 10"
+output: html_document
+---
+
+This script take as input data:
+* otu_table.biom: raw biom file with sequencing data (QIIME pipeline output available on request)
+* phylogeny.tre: phylogenic tree of 16S rRNA OTUs
+* Metadata_xp2_sample.csv: metadata related to samples
+
+This script gather input data in phyloseq objects:
+* ps_16S_raw: phyloseq object with raw data for 16S rDNA sequences
+* ps_16S: phyloseq objects with cleaned data
+* ps_16S_fltr: phyloseq object with filtered OTUs
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(readr)
+library(readxl)
+library(dplyr)
+library(phytools)
+library(ggplot2)
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+# Load raw biom file and clean data
+
+```{r load_raw_biom_file }
+
+# import biom file
+tmp_ps = import_biom("Data/otu_table.biom")
+# remove extra taxa rank
+tmp_ps@tax_table <- tmp_ps@tax_table[,1:7]
+# set taxa rank names
+colnames(tmp_ps@tax_table) <- c("Kingdom","Phylum","Class","Order","Family","Genus","Species")
+# import mapping file
+metadata_sample <- read.csv("Data/metadata_samples.csv")
+tmp_design = sample_data(metadata_sample)
+sample_names(tmp_design) <- tmp_design$sample
+# import tree
+tmp_tree = phytools::read.newick("Data/phylogeny.tre")
+#merge onto one phyloseq object
+ps_16S_raw = merge_phyloseq(tmp_ps,tmp_design,tmp_tree)
+
+# final ps_16S_raw: 155 samples & 3227 OTUs
+
+```
+
+```{r clean_dataset }
+
+# remove samples with seq count < tmp_rare_thld
+tmp_rare_thld = 8000
+ps_16S <- prune_samples(sample_sums(ps_16S_raw) > tmp_rare_thld, ps_16S_raw )
+ps_16S <- prune_taxa(taxa_sums(ps_16S) > 0, ps_16S)
+
+# final ps_16S 8000 : 146 samples & 3227 OTUs
+
+# check which OTUs where removed
+setdiff(taxa_names(ps_16S_raw),taxa_names(ps_16S))
+# check which samples where removed
+setdiff(sample_names(ps_16S_raw),sample_names(ps_16S))
+
+```
+
+## Split microcosm samples from suspension samples
+
+
+```{r microcosms }
+
+# subset microcosm samples
+ps_16S_micro <- prune_samples(ps_16S@sam_data$sample_type == "microcosm",ps_16S)
+ps_16S_micro <- prune_taxa(taxa_sums(ps_16S_micro) > 0, ps_16S_micro)
+
+# final ps_16S_micro: 121 samples & 3014 OTUs
+
+```
+
+```{r original_soil }
+
+# subset original soil samples
+ps_16S_T0 <- prune_samples(ps_16S@sam_data$sample_type == "original_soil",ps_16S)
+ps_16S_T0 <- prune_taxa(taxa_sums(ps_16S_T0) > 0, ps_16S_T0)
+
+# final ps_16S_T0: 10 samples & 2663 OTUs
+
+```
+
+```{r suspensions }
+
+# subset suspension samples
+ps_16S_susp <- prune_samples(ps_16S@sam_data$sample_type == "suspension",ps_16S)
+ps_16S_susp <- prune_taxa(taxa_sums(ps_16S_susp) > 0, ps_16S_susp)
+
+# final ps_16S_susp: 15 samples & 2434 OTUs
+
+# subset manipulated suspension samples
+ps_16S_susp_manip <- prune_samples(ps_16S_susp@sam_data$treatment != "susp_C",ps_16S_susp)
+ps_16S_susp_manip <- prune_taxa(taxa_sums(ps_16S_susp_manip) > 0, ps_16S_susp_manip)
+
+# final ps_16S_susp_manip: 12 samples & 165 OTUs
+
+```
+
+# Dataset overview
+
+## Load color palette for data visualization 
+
+```{r load_color_palette}
+
+color_palette <- read.csv("Data/color_palette.csv")
+
+```
+
+## Most abundant taxonomic groups
+
+This chunk cleans the taxonomic table and identifies the 12 most abundant taxonomic groups.
+
+```{r}
+
+tmp_ps = ps_16S_fltr
+
+# extract taxonomic table
+library(stringr)
+tmp_taxtab = tibble("OTU"=taxa_names(tmp_ps),
+                    "Kingdom"=str_remove(tmp_ps@tax_table@.Data[,"Kingdom"],"[D]_[0123456789]__"),
+                    "Phylum"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "class"=str_remove(tmp_ps@tax_table@.Data[,"Class"],"[D]_[0123456789]__"),
+                    "Order"=str_remove(tmp_ps@tax_table@.Data[,"Order"],"[D]_[0123456789]__"),
+                    "Family"=str_remove(tmp_ps@tax_table@.Data[,"Family"],"[D]_[0123456789]__"),
+                    "Genus"=str_remove(tmp_ps@tax_table@.Data[,"Genus"],"[D]_[0123456789]__"),
+                    "Species"=str_remove(tmp_ps@tax_table@.Data[,"Species"],"[D]_[0123456789]__"),
+                    "taxa"=str_remove(tmp_ps@tax_table@.Data[,"Phylum"],"[D]_[0123456789]__"),
+                    "Abundance" = as.numeric(taxa_sums(tmp_ps)))
+
+# TAXA
+## CLEAN
+### change unclassified by "Unknown"
+tmp_taxtab[is.na(tmp_taxtab)] <- "Unknown"
+### put class for Proteobacteria
+tmp_taxtab$taxa[tmp_taxtab$Phylum == "Proteobacteria"] <- tmp_taxtab$class[tmp_taxtab$Phylum == "Proteobacteria"]
+## MOST ABUND
+tmp_most_abund = tmp_taxtab %>% 
+  dplyr::group_by(taxa) %>% 
+  dplyr::summarise(sum=sum(Abundance))
+tmp_most_abund = tmp_most_abund$taxa[order(tmp_most_abund$sum, decreasing = TRUE)[1:12]]
+most_abund_taxa = sort(tmp_most_abund)
+### change rare taxa by "Others"
+tmp_taxtab$taxa[!(tmp_taxtab$taxa %in% c(tmp_most_abund,"Unknown"))] <- "Others"
+
+# GENUS
+## CLEAN
+tmp_pattern <- c("uncultured","Ambiguous","metagenome","\\d+")
+tmp_raw_taxa <- tmp_taxtab$Genus[grep(paste(tmp_pattern,collapse = "|"),tmp_taxtab$Genus)]
+tmp_taxtab[,"genus_clean"] <- tmp_taxtab$Genus
+tmp_taxtab$genus_clean <- ifelse(tmp_taxtab$genus_clean %in% c("",tmp_raw_taxa),
+                                     paste0("Unknown ",tmp_taxtab$taxa),
+                                     tmp_taxtab$genus_clean)
+tmp_taxtab$genus_clean <- ifelse(tmp_taxtab$genus_clean =="Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium",
+                                 "Rhizobium",tmp_taxtab$genus_clean)
+
+# DATA VISUALIZATION
+## select taxa colors and order 
+tmp_colors <- color_palette[color_palette$set == "taxo",c("color","order")]
+colnames(tmp_colors)[2] <- "color_order" 
+tmp_colors[,"taxa"] <- c(most_abund_taxa[order(most_abund_taxa)],"Others","Unknown")
+## add taxa color and order
+taxtab <- left_join(tmp_taxtab,tmp_colors, by = "taxa")
+
+```
+
+## Community composition
+
+These chunks produce the supplementary figure 1a.
+
+```{r wrangle_data}
+
+tmp_ps = ps_16S
+
+# wrangle data
+## extract data from ps
+tmp_data = psmelt(tmp_ps)
+## change unclassified by "Unknown"
+tmp_data[is.na(tmp_data)] <- "Unknown"
+## set class for Proteobacteria and phylum for other
+tmp_data[,"taxa"] <- tmp_data$Phylum
+tmp_data$taxa[tmp_data$Phylum == "D_1__Proteobacteria"] <- tmp_data$Class[tmp_data$Phylum == "D_1__Proteobacteria"]
+## clean group name
+tmp_data$taxa <- str_remove(tmp_data$taxa,"[D]_[123456789]__")
+## change rare taxa by "Others"
+tmp_data$taxa[!(tmp_data$taxa %in% c(most_abund_taxa,"Unknown"))] <- "Others"
+# summary by treatment and group
+tmp_plot_data <- tmp_data   %>%
+  dplyr::group_by(treatment,taxa)   %>%
+  dplyr::summarise( sum_abund = sum(Abundance)) %>%
+  ungroup()
+
+# colors and order
+## select taxa colors and order
+tmp_colors <- color_palette[color_palette$set == "taxo",c("color","order")]
+tmp_colors[,"taxa"] <- c(most_abund_taxa,"Others","Unknown")
+colnames(tmp_colors)[2] <- "color_order"
+## add taxa color and order 
+tmp_plot_data <- left_join(tmp_plot_data,tmp_colors, by = "taxa")
+## select treatment order
+tmp_order <- color_palette[color_palette$set == "treatments",c("treatment","order")]
+## add treatment order
+tmp_plot_data <- left_join(tmp_plot_data,tmp_order, by = "treatment")
+
+```
+
+```{r plot}
+
+ggplot(tmp_plot_data, aes(x=reorder(treatment,desc(order)), y=sum_abund,
+                         fill= reorder(taxa,color_order)))+
+  geom_bar(stat = "identity", position = "fill")+
+  scale_fill_manual(name = "taxa",
+                    values = levels(reorder(tmp_plot_data$color,tmp_plot_data$color_order)))+ 
+  scale_y_continuous(expand = c(0,0))+
+  coord_flip()+
+  labs(x="Treatment", y= "Relative Abundance",color = "#333333")+
+  theme_classic()+
+  theme(legend.position = "right",
+        axis.title = element_text(face="bold", size=12))
+
+```
+
+```{r diversity_metric_list}
+
+# create an empty list to store diversity metrics mean latter on
+div_metrics = list()
+
+```
+
+
+
+

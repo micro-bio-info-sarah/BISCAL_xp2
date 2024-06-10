@@ -1,0 +1,245 @@
+---
+title: "Inference of Co-Occurrence Networks"
+author: "Sarah HUET"
+date: "2021 M03 10"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phyloseq)
+library(PLNmodels)
+library(tibble)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(gdata)
+
+
+# load work space data
+load(".RData")
+
+# remove all temporary objects from your environment
+rm(list = names(.GlobalEnv)[grep("tmp",names(.GlobalEnv))])
+
+```
+
+To identify interacting OTUs and to explore to which extent the altered community properties influenced interactions between OTUs, four co-occurrence networks were constructed across all microcosm samples (i.e., 121 samples) and based on the most abundant OTUs using the same filter as described above (i.e., 258 OTUs). Networks were inferred using a sparse multivariate Poisson log-normal (PLN) model with a latent Gaussian layer and an observed Poisson layer using the PLNmodels package (Chiquet et al., 2019) with an offset corresponding to the number of reads in each sample. Four PLN models were used either without covariate (Model 0) or with each one of the altered community properties (i.e., diversity, composition or density) as a qualitative covariate (Models 1, 2 and 3, respectively), based on the following PLN models (Equations 5 to 8). 
+Considering that an OTU of abundance Y, in any l sample follows a Poisson distribution of parameter $\Lambda$ as $Y\sim\mathcal{P}(\mathrm{\Lambda})$, we used the following models:
+
+$$\log(\Lambda_l) = o_l + \mu + Z_l,\ Z_{{l}_{1\le l\le121}} \mathrm{\ iid} \sim \mathcal{N}(0,\sigma^2) \ (5;\ M0)$$
+
+$$\log(\Lambda_{al}) = o_{al} + \mu + \alpha_{a} + Z_{al},\ Z_{{al}_{1\le l\le121}} \mathrm{\ iid}\sim\mathcal{N}(0,\sigma^2) \ (6;M1)$$
+
+$$\log(\Lambda_{bl}) = o_{bl} + \mu + \beta_{b} + Z_{bl},\ Z_{{bl}_{1\le l\le121}} \mathrm{\ iid}\sim\mathcal{N}(0,\sigma^2) \ (7;M2)$$
+$$\log(\Lambda_{dl}) = o_{dl} + \mu + \delta_{d} + Z_{dl},\ Z_{{dl}_{1\le l\le121}} \mathrm{\ iid}\sim\mathcal{N}(0,\sigma^2) \ (8;M3)$$
+
+where $l=\left\{1,\ldots,121\right\}$ represents the samples, $a=\left\{1,2\right\}$ represents the diversity, $b=\left\{1,2\right\}$ represents the composition, $d=\left\{1,2,3\right\}$ represents the density, $\alpha$, $\beta$, $\delta$ are the fixed effects of the diversity, composition and density of the manipulated communities, respectively, o is the offset for each sample calculated as the log of the sample read sum and Z is the random sampling effect modelling the data overdispersion.
+The best network for each model was selected using a Stability Approach to Regularization Selection (StARS) (Liu et al., 2010). The nodes and links of the four networks were compared using the ggVennDiagram function from the ggVennDiagram package (version 1.2.2). For visualization purposes, only the network inferred from the M0 model was visualized using the Interactive Tree of Life (iTOL) webserver (Letunic & Bork, 2019).
+
+
+# Networks
+
+## Model without covariate
+
+```{r M0}
+
+tmp_ps = ps_16S_fltr
+
+# calculate offset
+tmp_otu_table = t(tmp_ps@otu_table@.Data)
+tmp_Offset <- compute_offset(tmp_otu_table, offset = "TSS")
+# covariable dataframe
+tmp_covariables = data.frame(tmp_ps@sam_data)
+tmp_covariables = tmp_covariables[,c("sample","treatment")]
+# prepare dataframe
+tmp_df <- prepare_data(counts = tmp_otu_table,covariates =  tmp_covariables)
+tmp_df$Offset <- tmp_Offset
+
+# calcule network
+tmp_network <- PLNnetwork(Abundance ~ 1 + offset(log(Offset)), data = tmp_df)
+
+# obtain best model
+tmp_model.StARS <- tmp_network$getBestModel("StARS")
+
+# graph adjacency matrix (value = partial correlation value)
+tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+# remove redundant data from the matrix
+diag(tmp_adjacency.StARS)=0
+tmp_adj=tmp_adjacency.StARS
+tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+# define a partial correlation threshold
+tmp_thrld = 0
+# extract edges above a threshold and involved nodes
+tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+tmp_edges_val = tmp_adj[tmp_edges]
+tmp_edges_otu <- tibble("source"=rownames(tmp_adj)[tmp_edges[,1]],
+                        "target"=colnames(tmp_adj)[tmp_edges[,2]],
+                        "value"=tmp_edges_val)
+# name edges
+tmp_edges_otu[,"edge_name"] <- paste0(apply(tmp_edges_otu[,c("source","target")],1,sort)[1,],
+                                      "__",apply(tmp_edges_otu[,c("source","target")],1,sort)[2,])
+# extract involved nodes
+tmp_nodes <- unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+
+# rename model and dataframes
+gdata::mv("tmp_model.StARS",paste0("network_M","0"))
+gdata::mv("tmp_edges_otu",paste0("network_M","0","_edges"))
+gdata::mv("tmp_nodes",paste0("network_M","0","_nodes"))
+
+
+```
+
+
+```{r itol_connections}
+
+tmp_itol = tmp_edges_otu
+
+tmp_itol[,"color"] <- ifelse(tmp_itol$value > 0, "#3399FF","#FF3366")
+
+tmp_itol[,"style"] <- rep("normal",nrow(tmp_itol))
+
+tmp_itol$value <- abs(tmp_itol$value)
+
+# extrcat data
+write.csv(tmp_itol,"iTOL/tmp_itol_tree_data.csv",row.names = F,quote = F)
+
+
+```
+
+## Models with covariate
+
+```{r M1_M2_M3}
+
+tmp_ps = ps_16S_fltr
+
+tmp_factor_list = c("incub","broth","density")
+
+for (tmp_i in 1:length(tmp_factor_list)) {
+  
+  # select a covariate
+  tmp_factor = tmp_factor_list[tmp_i]
+  
+  # calculate offset
+  tmp_otu_table = t(tmp_ps@otu_table@.Data)
+  tmp_Offset <- compute_offset(tmp_otu_table, offset = "TSS")
+  # covariable dataframe
+  tmp_covariables = data.frame(tmp_ps@sam_data)
+  tmp_covariables = tmp_covariables[,c("sample","treatment",tmp_factor)]
+  # prepare dataframe
+  tmp_df <- prepare_data(counts = tmp_otu_table,covariates =  tmp_covariables)
+  tmp_df$Offset <- tmp_Offset
+  # calcule network
+  tmp_network <- PLNnetwork(Abundance ~ 0+tmp_df[,tmp_factor] + offset(log(Offset)), data = tmp_df)
+  # obtain best model
+  tmp_model.StARS <- tmp_network$getBestModel("StARS")
+  
+  # graph adjacency matrix (value = partial correlation value)
+  tmp_adjacency.StARS <- as.matrix(tmp_model.StARS$latent_network())
+  # remove redundant data from the matrix
+  diag(tmp_adjacency.StARS)=0
+  tmp_adj=tmp_adjacency.StARS
+  tmp_adj[lower.tri(tmp_adj,diag=T)]=0
+  # define a partial correlation threshold
+  tmp_thrld = 0
+  # extract edges above a threshold and involved nodes
+  tmp_edges <- which(abs(tmp_adj)>tmp_thrld,arr.ind=TRUE)
+  tmp_edges_val = tmp_adj[tmp_edges]
+  tmp_edges_otu <- tibble("source"=rownames(tmp_adj)[tmp_edges[,1]],
+                          "target"=colnames(tmp_adj)[tmp_edges[,2]],
+                          "value"=tmp_edges_val)
+  # name edges
+  tmp_edges_otu[,"edge_name"] <- paste0(apply(tmp_edges_otu[,c("source","target")],1,sort)[1,],
+                                        "__",apply(tmp_edges_otu[,c("source","target")],1,sort)[2,])
+  # extract involved nodes
+  tmp_nodes <- unique(c(tmp_edges_otu$source,tmp_edges_otu$target))
+
+  # rename model and dataframes
+  gdata::mv("tmp_model.StARS",paste0("network_M",tmp_i))
+  gdata::mv("tmp_edges_otu",paste0("network_M",tmp_i,"_edges"))
+  gdata::mv("tmp_nodes",paste0("network_M",tmp_i,"_nodes"))
+
+}
+
+```
+
+# Venn diagrams
+
+
+```{r Venn_Diagram_edges}
+
+library(ggVennDiagram)
+
+tmp_venn <- list("all"=network_M0_edges$edge_name,
+                 "div"=network_M1_edges$edge_name,
+                 "compo"=network_M2_edges$edge_name,
+                 "dens"=network_M3_edges$edge_name)
+
+# 4D Venn diagram
+venn_edges <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1)
+venn_edges
+
+```
+
+```{r Venn_Diagram_nodes}
+
+library(ggVennDiagram)
+
+tmp_venn <- list("all"=network_M0_nodes,
+                 "div"=network_M1_nodes,
+                 "compo"=network_M2_nodes,
+                 "dens"=network_M3_nodes)
+
+# 4D Venn diagram
+venn_nodes <- ggVennDiagram(tmp_venn, color = "black", lwd = 0.8, lty = 1)
+venn_nodes
+
+```
+
+```{r barplot}
+
+# extract Venn intersection
+tmp = venn_edges[["plot_env"]][["data"]]@region
+
+# number of positive and negative per Venn intersection
+for (tmp_i in tmp$name) {
+  
+  tmp_pos = length(which(unlist(tmp$item[tmp$name == tmp_i]) %in%
+                       network_M0_edges$edge_name[network_M0_edges$value >0]))
+  
+  tmp_neg = length(which(unlist(tmp$item[tmp$name == tmp_i]) %in%
+                       network_M0_edges$edge_name[network_M0_edges$value <0]))
+  
+  tmp[tmp$name == tmp_i,"pos"] <- tmp_pos
+  tmp[tmp$name == tmp_i,"neg"] <- tmp_neg
+}
+
+# percent
+tmp <- tmp %>%
+  mutate(
+    pos_pc = pos / length(which(network_M0_edges$value >0)) *100,
+    neg_pc = -(neg / length(which(network_M0_edges$value <0)) *100)
+  ) %>%
+  pivot_longer(.,cols=c(pos_pc,neg_pc),names_to = "link_value",)
+
+# barplot
+tmp %>%
+ filter(grepl("all",name)) %>%
+ ggplot() +
+  aes(x = name, y = value, fill = link_value) +
+  geom_col() +
+  coord_flip() +
+  theme_light()
+
+
+
+```
+
+
+
+
+
